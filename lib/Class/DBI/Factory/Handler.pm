@@ -7,11 +7,10 @@ use Apache::Cookie ();
 
 use IO::File;
 use Carp ();
-use Data::Dumper;
 
 use vars qw( $VERSION );
 
-$VERSION = '0.74';
+$VERSION = '0.741';
 $|++;
 
 =head1 NAME
@@ -389,7 +388,6 @@ sub all_param {
 	    my @input = $self->param($_);
 	    $param{$_} = (scalar @input > 1) ? \@input : $input[0];
 	}
-#	warn Data::Dumper->Dump([\%param], ['param']);
 	return %param;
 }
 
@@ -402,7 +400,6 @@ sub all_fat_param {
 	    my @objects = map { $self->factory->reify($_, $p) } @values;
 	    $fat_param{$p} = (scalar @objects > 1) ? \@objects : $objects[0];
 	}
-#	warn Data::Dumper->Dump([\%fat_param], ['fat_param']);
     return %fat_param;
 }
 

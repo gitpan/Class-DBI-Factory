@@ -1,5 +1,8 @@
 Revision history for Perl extension Class::DBI::Factory.
 
+0.741 Fri 5 March 2004
+    - pager tests made conditional on presence of Class:DBI::Pager (d'oh).
+    
 0.74  Weds 3 March 2004
     - tests no longer require Term::Prompt, so as to get out of the
       dilemma of whether to record it as a dependency or not. This means

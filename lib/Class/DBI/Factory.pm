@@ -5,7 +5,7 @@ use lib;
 
 use vars qw( $VERSION $AUTOLOAD $_factories );
 
-$VERSION = '0.74';
+$VERSION = '0.741';
 $_factories = {};
 
 =head1 NAME

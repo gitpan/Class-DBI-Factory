@@ -78,10 +78,13 @@ my $count = $other_list->total;
 
 is( $count, 2, 'list from iterator');
 
-my $pager = $factory->pager('thing', 2);
-my @things = $pager->retrieve_all;
-
-is( $pager->last_page, 2, 'pager construction');
+SKIP: {
+    eval { require Class::DBI::Pager };
+    skip "Class::DBI::Pager not installed", 1 if $@;
+    my $pager = $factory->pager('thing', 2);
+    my @things = $pager->retrieve_all;
+    is( $pager->last_page, 2, 'pager construction');
+}
 
 my $dbh = $factory->dbh;
 isa_ok( $dbh, "Ima::DBI::db", 'factory->dbh' );

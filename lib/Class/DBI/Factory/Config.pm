@@ -2,11 +2,10 @@ package Class::DBI::Factory::Config;
 
 use strict;
 use AppConfig qw(:argcount);
-use Data::Dumper;
 
 use vars qw( $VERSION $AUTOLOAD );
 
-$VERSION = '0.74';
+$VERSION = '0.741';
 
 =head1 NAME
 
@@ -276,10 +275,6 @@ Returns true if the named package was successfully loaded at startup.
 
 A shorthand for $config->get('class'): returns a list.
 
-=head2 dump()
-
-Returns Dumper($self) for debugging purposes.
-
 =cut
 
 sub packages {
@@ -294,10 +289,6 @@ sub package_loaded {
 
 sub classes {
 	return shift->get('class');
-}
-
-sub dump {
-	return Data::Dumper->Dump([shift], ['config']);
 }
 
 sub AUTOLOAD {

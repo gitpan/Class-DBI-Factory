@@ -3,9 +3,8 @@ package Class::DBI::Factory::List;
 use strict;
 use Carp qw();
 use vars qw( $AUTOLOAD $VERSION );
-use Data::Dumper;
 
-$VERSION = "0.74";
+$VERSION = "0.741";
 
 =head1 NAME
 
@@ -85,7 +84,7 @@ Note that if your application is using Class::DBI::Factory and the Template Tool
 
 =head2 from()
 
-Building a list from an iterator is simpler: all you have to do is pass in the iterator and CDFL will do the rest. No search parameters are needed, but you can still supply pagination constraints. There is also the option to supply a calling object, since one of the main uses of from() is to paginate a list of relations. Nothing is done to the supplied parent object: it is just held ready in case it is needed to build the list title (or a template asks for it).
+Building a list from an iterator is simpler but less flexible: all you have to do is pass in the iterator and CDFL will do the rest. No search parameters are needed, but you can still supply pagination constraints. There is also the option to supply a calling object, since one of the main uses of from() is to paginate a list of relations. Nothing is done to the supplied parent object: it is just held ready in case it is needed to build the list title (or a template asks for it).
 
 my $iterator = $artist->cds;
 my $list = Class::DBI::Factory::List->from( $iterator, $artist, { step => 20 });
@@ -149,11 +148,6 @@ sub iterator {
 	my $self = shift;
 	return $self->{iterator} if $self->{iterator};
 	return $self->{iterator} = $self->{_class}->search( $self->where, {order_by => $self->order_by});
-}
-
-sub iterator_dump {
-	my $self = shift;
-	return Dumper($self->iterator);
 }
 
 sub contents {

@@ -6,7 +6,6 @@ The demo requires that you have installed:
     Class::DBI::Factory
     Template Toolkit
     DBD::SQLite
-    DBD::DBI::SQLite
 
 and for the installer, if you use it:
     Term::Prompt
@@ -14,7 +13,7 @@ and for the installer, if you use it:
 
 And about 100 other modules which are required by this lot.
 
-To install the demo somewhere, just run ./install.pl. That script will copy files to the directory you specify and fills in a couple of other values in the configuration files: you could very easily accomplish the same thing by hand if you prefer. If you do use the installer, don't run it as root, please.
+To install the demo somewhere, just run ./install.pl. That script will copy files to the directory you specify and fill in a couple of other values in the configuration files: you could very easily accomplish the same thing by hand if you prefer. If you do use the installer, don't run it as root, please.
 
 Once installtion is complete, the script will tell you what to do next. To find out more about what's going on, cd to the installation directory and examine the files. The database which this uses is in ./data and is very dull, so we'll ignore that. There are four other active ingredients:
 
@@ -24,7 +23,7 @@ There's not much interesting in here either, but if you look in lib/My/DBI.pm, y
 
 * templates in ./templates
 
-Also very very dull, but they do include lots of use of the factory to retrieve objects and configuration parameters. [% FOREACH cd = factory.all('cd') %], you know.
+Also very vanilla, but they do include lots of use of the factory to retrieve objects and configuration parameters. [% FOREACH cd = factory.all('cd') %], you know.
 
 * request handler in ./lib/My/Handler.pm
   
