@@ -93,7 +93,7 @@ my $list = Class::DBI::Factory::List->from( $iterator, $artist, { step => 20 });
 =cut
 
 sub new {
-	my ( $class, $input ) = @_;
+	my ( $class, $input, $factory ) = @_;
 	my $content_class = delete $input->{class};
     my $prefix = delete $input->{prefix};
 	return warn "Class::DBI::Factory::List must be supplied with at least a class parameter as full::class::name" unless ($content_class);
@@ -105,6 +105,7 @@ sub new {
 		_constraints => \%constraints,
 		_class => $content_class,
 	    _prefix => $prefix,
+	    _factory => $factory,
 	}, $class;
 
     $self->debug(2, "*** new list. content_class is $content_class and prefix is $prefix");
@@ -113,7 +114,7 @@ sub new {
 }
 
 sub from {
-	my ($class, $iterator, $source, $param) = @_;
+	my ($class, $iterator, $source, $param, $factory) = @_;
 	my $content_class = $iterator->class;
     my $prefix = delete $param->{prefix};
 	my %parameters =  ( $source->type => $source->id ) if $source;
@@ -124,6 +125,7 @@ sub from {
 		_constraints => \%constraints,
 		_class => $content_class,
 	    _prefix => $prefix,
+	    _factory => $factory,
 	}, $class;
     $self->debug(2, "*** list from iterator. content class is $content_class.");
     return $self;
@@ -493,7 +495,7 @@ sub factory_class { 'Class::DBI::Factory' }
 
 sub factory {
 	my $self = shift;
-	return $self->{_factory} ||= $self->factory_class->instance();
+	return $self->{_factory} ||= $self->factory_class->instance;
 }
 
 =head2 default()

@@ -4,7 +4,7 @@ use Ima::DBI;
 
 use vars qw( $VERSION $AUTOLOAD $_factories );
 
-$VERSION = '0.752';
+$VERSION = '0.76';
 $_factories = {};
 
 =head1 NAME
@@ -15,7 +15,7 @@ Class::DBI::Factory - a factory interface to a set of Class::DBI classes
 
     my $factory = Class::DBI::Factory->new( '/path/to/config.file');
     
-    my $factory = Class::DBI::Factory->instance($site_id);
+    my $factory = Class::DBI::Factory->instance($site_id, '/path/to/config.file');
     
     $ENV{_SITE_ID} = 'foo';
     $ENV{_CONFIG_DIR} = '/home/bar/conf/';
@@ -75,7 +75,7 @@ It makes data class re-use much easier in a persistent environment
 
 =back
 
-The Factory is most likely to be employed as the hub of a Class::DBI-based web application, supplying objects, information and services to handlers, templates and back-end processes as required, so it includes a few key services that make Class::DBI much easier to use under mod_perl (see L</"PERSISTENCE"> below), and comes with three helper classes designed with that role in mind:
+The Factory is most likely to be employed as the hub of a Class::DBI-based web application, supplying objects, information and services to handlers, templates and back-end processes as required, so it includes a few key services that make Class::DBI much easier to use under mod_perl (see L</"PERSISTENCE"> below), and comes with three helpful base classes designed with that role in mind:
 
 =head2 Class::DBI::Factory::List
 
@@ -103,7 +103,7 @@ The instance mechanism allows for several factories to coexist. Under mod_perl i
   
 will always return the right factory object for each C<$site_id>, constructing it if necessary. The C<$site_id> can also be supplied as an environment variable, given to the constructor or just left to the constructor to work out. If no id can be found, then C<instance> will revert to a singleton constructor and return the same factory to every request.
 
-This persistence between requests makes the factory an excellent place to store expensive objects, especially if they must be built separately for each of your sites. As standard each factory object is ready to create and hold a single Ima::DBI handle and a single Template object, both of which are constructed with parameters from the factory's configuration files and made available to handlers and data classes.
+This persistence between requests makes the factory an excellent place to store expensive objects, especially if they must be built separately for each of your sites. As standard each factory object is ready to create and hold a single database handle and a single Template object, both of which are constructed with parameters from the factory's configuration files and made available to handlers and data classes.
 
 With a small tweak to your data classes, this will also allow you to run several instances of the same application side by side, each instance using a different database and configuration files, and sharing templates or not as you dictate. All you have to do is override C<db_Main> with a method that retrieves the factory's database handle instead of the class handle. See L</"YOUR DATA CLASSES"> below for details.
 
@@ -190,7 +190,7 @@ and optionally:
   sub config { return shift->factory->config(@_) }
   sub tt { return shift->factory->tt(@_) }
 
-The C<db_Main> method is essential: it overrides the standard l<Class::DBI>/l<Ima::DBI> handle storage mechanism with a factory one that doesn't assume that a class will always want to access the same database table. 
+The C<db_Main> method is essential: it overrides the standard L<Class::DBI>/L<Ima::DBI> handle storage mechanism with a factory one that doesn't assume that a class will always want to access the same database table. 
 
 =head1 CONFIGURATION
 
@@ -521,7 +521,7 @@ can be written
 
 Provided foo is in the permitted set of methods passed through to data classes, and $moniker maps onto a class that we know, it should just work. The business of passing commands along is handled by a fairly simple AUTOLOAD sub which uses a dispatch table to screen commands and translate them into their real form. 
 
-The dispatch table is built by way of calls two separate subs which define the set of permitted operations as a hash of (factory_method => class_method):
+The dispatch table is built by way of calls to two separate subs which define the set of permitted operations as a hash of (factory_method => class_method):
 
 =head2 permitted_methods()
 
@@ -532,11 +532,11 @@ This method defines a core set of method calls that the factory will accept and 
 This is a hook to allow subclasses to extend (or selectively override) the set of permitted method calls with a minimum of bother. It is common for a local subclass of Class::DBI to add a few custom operations to the normal cdbi set: a C<retrieve_latest> here, a C<retrieve_by_serial_code> there. To expose those functions through the factory, you just need to put them in the hashref returned by C<extra_methods>. It's also a nice chance to omit the verbal clutter used to avoid clashes with column names:
 
   sub extra_methods {
-	return {
+    return {
       latest => retrieve_latest,
       by_serial => retrieve_by_serial_code,
       by_title => retrieve_by_title,
-	}
+    }
   }
 
 The keys of this hash become visible as factory methods, and the corresponding values are used to pass the call on to the data class. In this case, 
@@ -547,7 +547,7 @@ would be passed on as
 
   My::CD->latest(foo, bar);
 
-Which will of course fail if no C<latest> method has been defined or no My::CD package has been loaded.
+Which will of course fail if no C<latest> method has been defined (or no My::CD package has been loaded).
 
 =cut
 
@@ -665,7 +665,8 @@ sub has_class {
 
 each return the corresponding value defined in the data class, as in:
 
-  Which of these [% factory.plural('track') %] has not been covered by a boy band?
+  Which of these [% factory.plural('track') %] 
+  has not been covered by a boy band?
 
 =cut
 
@@ -697,10 +698,10 @@ The rest of the factory's functions are designed to provide support to L<Class::
 Can be used to set database connection values if for some reason you don't want them in a config file. Expects to receive a hashref of parameters. The tests for CDF use this approach, if you want a look.
 
   $factory->set_db({
-    db_type => '...',			# defaults to 'SQLite'
-    db_host => '...',			# in which case no other parameters
-    db_port => '...',			# are needed except a path/to/file
-    db_name => '...',           # in db_name
+    db_type => '...',         # defaults to 'SQLite'
+    db_host => '...',         # in which case no other parameters
+    db_port => '...',         # are needed except a path/to/file
+    db_name => '...',         # in db_name
     db_username => '...',
     db_password => '...',
   });
@@ -711,13 +712,13 @@ Defaults can be supplied by C<Class::DBI::Config::default_values>, which is call
 
 Returns the $data_string that CDF is using to create handles for this factory. Some modules - like L<Class::DBI::Loader> - want to be given a dsn rather than a database handle: sending them $factory->dsn should just work.
 
+If a db_dsn parameter is supplied, it is accepted intact. Otherwise we will look for db_type, db_name, db_host, db_server and db_port parameters to try and build a suitable data source string. You will probably also want to db_username and db_password settings unless you're using SQLite.
+
 =head2 dbh()
 
-Returns or creates the Ima::DBI handle which is used by this factory. 
+Returns the database handle which is used by this factory. 
 
 Each factory normally has one handle, created according to its configuration instructions and then made available to all its data classes. The main point of this is to get around the one class -> one table assumptions of Class::DBI: each factory can provide a different database connection to the data using different data.
-
-If a db_dsn parameter is supplied, it is accepted intact. Otherwise we will look for db_type, db_name, db_host, db_server and db_port parameters to try and build a suitable data source string. You will probably also want to db_username and db_password settings unless you're using SQLite.
 
 For this to be useful you must also override db_Main in your Class::DBI subclass, eg:
 
@@ -725,13 +726,13 @@ For this to be useful you must also override db_Main in your Class::DBI subclass
 
 Should do it, except that you will probably have subclassed CDF, and should use the name of your subclass instead.
 
-You can safely ignore all this unless it sounds useful: it costs nothing until used.
+You can safely ignore all this unless your data clases need access to configuration information, template handler, unrelated other data classes or some other factory mechanism.
 
 =cut
 
 sub set_db {
 	my ($self, $parameters) = @_;
-	$self->config->set($_, $parameters->{$_}) for grep { exists $parameters->{$_} } qw(db_type db_name db_username db_password db_port db_host);
+	$self->config->set($_, $parameters->{$_}) for grep { exists $parameters->{$_} } qw(db_type db_name db_username db_password db_port db_host db_dsn);
 }
 
 sub dsn {
@@ -748,30 +749,42 @@ sub dsn {
 }
 
 sub dbh {
+    return &{ shift->_dbc };
+}
+
+=head2 _dbc()
+
+taps into the terrible innards of Ima::DBI to retrieve a closure that returns a database handle of the right kind for use here, but instead of being incorprated as a method, the closure is stored in the factory object's hashref.
+
+(All C<dbh> now does is to put a C<%{ }> round a call to $self->{_dbc}.)
+
+This depends on close tracking of internal features of Ima::DBI and Class::DBI, since there is no easy way to make use of the handle-creation defaults from the outside. It will no doubt have to change with each update to cdbi.
+
+=cut 
+
+sub _dbc {
 	my $self = shift;
-	return $self->{_dbh} = $_[0] if $_[0] && ref($_[0]) eq 'Ima::DBI';
-	return $self->{_dbh} if $self->{_dbh} && $self->{_dbh}->ping;
-
+	return $self->{_dbc} if $self->{_dbc};
 	my $dsn = $self->dsn;
-	my $parameters = {
-        AutoCommit => $self->config->get('db_autocommit'), 
-        Taint => $self->config->get('db_taint'), , 
-        RaiseError => $self->config->get('db_raiseerror'), ,
-        ShowErrorStatement => $self->config->get('db_showerrorstatement'), 
+	my $attributes = {
+        AutoCommit => $self->config->get('db_autocommit'),
+        Taint => $self->config->get('db_taint'),
+        RaiseError => $self->config->get('db_raiseerror'),
+        ShowErrorStatement => $self->config->get('db_showerrorstatement'),
+        RootClass => "DBIx::ContextualFetch",
+        FetchHashKeyName => 'NAME_lc',
+        ChopBlanks => 1,
+        PrintError => 0,
     };
-
-	$self->debug(2, "connecting to database with dsn '$dsn'");
-	$self->debug(3, "connection parameters: " . join("\n", map("$_ = $$parameters{$_}", keys %$parameters)));
-
-	my $dbh = Ima::DBI->connect_cached(
+	my @config = (
 		$dsn,
 		$self->config->get('db_username'), 
 		$self->config->get('db_password'), 
-		$parameters,
+		$attributes,
 	);
+	$self->{_dbc} = Ima::DBI->_mk_db_closure(@config);
+	return $self->{_dbc};
 	
-	$self->_croak("Class::DBI::Factory::dbh initialisation failed") unless $dbh;
-	return $self->{_dbh} = $dbh;
 }
 
 =head2 tt()
@@ -888,17 +901,16 @@ sub list {
 	return $self->_carp("Class::DBI::Factory->list: no class found (nor retrieved from moniker '$moniker'). Cannot build list. \n") unless $criteria{class};
 
  	my %inflated_criteria = map { $_ => $self->reify( $criteria{$_}, $_ ) } keys %criteria;
-	return $self->list_class->new(\%inflated_criteria);
+	return $self->list_class->new(\%inflated_criteria, $self);
 }
 
 sub list_from {
-	my $self = shift;
-	my $iterator = shift || return;
-
+	my ($self, $iterator, $source, $param) = @_;
+    return unless $iterator;
 	my $class =  $self->list_class || return;
 	eval "require $class;";
 	return $self->_carp("failed to load list class: $@") if $@;
-	return $self->list_class->from( $iterator, @_ );
+	return $self->list_class->from( $iterator, $source, $param, $self );
 }
 
 =head2 from_input()
@@ -1056,7 +1068,7 @@ prints a few important messages: usually ways in which this request or operation
   
 =item B<debug_level = 2>
 
-prints markers as well, to record the stages of a request or operation as it is handled. This is a useful trace when hunting for a break.
+prints markers as well, to record the stages of a request or operation as it is handled. This is a useful trace when trying to locate a failure.
   
 =item B<debug_level = 2>
 
@@ -1177,9 +1189,13 @@ Write direct tests for the other three modules
 =over
 
 =item L<Class::DBI>
+
 =item L<AppConfig> (unless you replace the configuration mechanism)
+
 =item L<Apache::Request> (if you use CDF::Handler)
+
 =item L<Apache::Cookie> (if you use CDF::Handler);
+
 =item L<DBD::SQLite> (but only for tests and demo)
 
 =back

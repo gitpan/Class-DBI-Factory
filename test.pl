@@ -12,6 +12,7 @@ BEGIN {
 
 my $here = cwd;
 my $now = scalar time;
+
 my $factory = Class::DBI::Factory->instance('_test', "$here/test/cdf.conf");
 
 ok( $factory, 'factory object configured and built' );
@@ -20,7 +21,7 @@ my $dsn = "dbi:SQLite:dbname=cdftest.db";
 my $config = set_up_database($dsn);
 $factory->set_db($config);
 
-ok( $factory->dbh, 'connected to ' . $config->{db_type});
+ok( $factory->dbh && $factory->dbh->ping, 'connected to ' . $config->{db_type});
 
 my $thing = $factory->create(thing => {
 	title => 'Wellington boot remover',
@@ -79,7 +80,7 @@ my $count = $other_list->total;
 is( $count, 2, 'list from iterator');
 
 my $dbh = $factory->dbh;
-isa_ok( $dbh, "Ima::DBI::db", 'factory->dbh' );
+isa_ok( $dbh, "DBIx::ContextualFetch::db", 'factory->dbh' );
 
 SKIP: {
     eval { require Template };

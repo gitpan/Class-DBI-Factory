@@ -1,6 +1,11 @@
 Revision history for Perl extension Class::DBI::Factory.
 
-0.752 Mon 21 june 2004
+0.76  Tues 22 June 2004
+    - Brought up to date with Class::DBI 0.96 and Ima::DBI 0.33
+      Not guaranteed (or likely) to work with later versions.
+    - tweaks to documentation and tests
+
+0.752 Mon 21 June 2004
     - bugfix: makefile was specifying Class::DBI 0.92. very bad. removed.
     
 0.751 Sat 24 April 2004
