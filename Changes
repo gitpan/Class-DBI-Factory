@@ -1,17 +1,24 @@
 Revision history for Perl extension Class::DBI::Factory.
 
-0.70  Tue Jan 26 2004
-    - first public release, and so heavily rewritten as to bear little relation 
-      to any previous version except in the names of the methods, so I shan't bother 
-      recording changes except to observe that the package/plugin thing, automatic 
-      configuration refresh and POD are all new in this release and therefore less 
-      beaten into shape than other parts.
-
-0.71  Thursday Jan 28 2004
-    - made the dbh connection method compatible with sybase by allowing the 
-      omission of db_name.
-    - configuration file can supply a whole DSN if required to get around 
-      compatibility issues (sugg. Ed Sabol).
+0.74  Weds 3 March 2004
+    - tests no longer require Term::Prompt, so as to get out of the
+      dilemma of whether to record it as a dependency or not. This means
+      the tests don't work in mysql now, but it means the dependencies
+      are all that's required to run make test (so we get past CPAN testers)
+    - tests skip if DBD::SQLite not present.
+    - template processing consolidated in the factory so that it only
+      needs to subclassed in one place.
+    - more debugging flags in Factory.pm
+    - officially works with cdbi 0.95 (I had forgotten to update :)
+      should be fine with anything 0.9x, iirc.
+    - lots more tests
+      
+0.73  Tues 2 March 2004
+    - debugging hooks spread throughout the system in a way that's useful
+      to subclasses. Configuration files now supply a debug_level that
+      controls the amount of detail supplied. exception handling still
+      poor, though. that's next.
+    - This version is the first uploaded to cpan.
 
 0.72
     - bugfix: template path reversed before use, so that later definitions
@@ -23,8 +30,17 @@ Revision history for Perl extension Class::DBI::Factory.
       on packages loaded. package/plugin thing generally smartened up 
       behind it.
     
-0.73
-    - debugging hooks spread throughout the system in a way that's useful
-      to subclasses. configuration files now supply a debug_level that
-      controls the amount of detail supplied. exception handling still
-      poor, though. that's next.
+0.71  Thursday Jan 28 2004
+    - made the dbh connection method compatible with sybase by allowing the 
+      omission of db_name.
+    - configuration file can supply a whole DSN if required to get around 
+      compatibility issues (sugg. Ed Sabol).
+
+0.70  Tue Jan 26 2004
+    - first public release, and so heavily rewritten as to bear little relation 
+      to any previous version except in the names of the methods, so I shan't bother 
+      recording changes except to observe that the package/plugin thing, automatic 
+      configuration refresh and POD are all new in this release and therefore less 
+      beaten into shape than other parts.
+
+      

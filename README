@@ -1,11 +1,10 @@
-Class::DBI::Factory v0.7
+Class::DBI::Factory v0.74
 
 In addition to the prerequisites recorded in the makefile, the tests for this module
-use Term::Prompt and DBD::SQLite. I haven't required those modules since it would be 
-a bit silly, but you will need them for the tests to work.
+use DBD::SQLite and will skip if it's not installed.
 
 The enclosed demo application - in ./demo - also requires DBD::SQLite, and its 
-installer uses Term::Prompt and File::Ncopy too.
+installer uses Term::Prompt and File::Ncopy.
 
 Please send comments (about this inconvenience or anything else) to wross@cpan.org.
 
@@ -13,4 +12,4 @@ Hope this is useful.
 
 will
 
-26.1.04
+3.3.04

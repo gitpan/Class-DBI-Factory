@@ -6,7 +6,7 @@ use Data::Dumper;
 
 use vars qw( $VERSION $AUTOLOAD );
 
-$VERSION = '0.73';
+$VERSION = '0.74';
 
 =head1 NAME
 

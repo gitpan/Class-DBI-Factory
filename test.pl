@@ -1,12 +1,14 @@
 use strict;
 use lib qw( ../lib ./test );
-
-use Term::Prompt qw(termwrap prompt);
 use DBI;
 use Cwd;
-use Test::More tests => 13;
+use Test::More;
 
-BEGIN { use_ok('Class::DBI::Factory'); }
+BEGIN {
+    eval "use DBD::SQLite";
+    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 19);
+    use_ok('Class::DBI::Factory');
+}
 
 my $here = cwd;
 my $now = scalar time;
@@ -14,7 +16,8 @@ my $factory = Class::DBI::Factory->instance('_test', "$here/test/cdf.conf");
 
 ok( $factory, 'factory object configured and built' );
 
-my $config = set_up_database();
+my $dsn = "dbi:SQLite:dbname=cdftest.db";
+my $config = set_up_database($dsn);
 $factory->set_db($config);
 
 ok( $factory->dbh, 'connected to ' . $config->{db_type});
@@ -80,14 +83,34 @@ my @things = $pager->retrieve_all;
 
 is( $pager->last_page, 2, 'pager construction');
 
+my $dbh = $factory->dbh;
+isa_ok( $dbh, "Ima::DBI::db", 'factory->dbh' );
+
+SKIP: {
+    eval { require Template };
+    skip "Template not installed", 3 if $@;
+    
+    my $tt = $factory->tt;
+    isa_ok( $tt, "Template", 'factory->template' );
+    
+    my $html;
+    my $template = '[% test %]';
+    $factory->process(\$template, { test => 'pass' } , \$html);
+    is( $html, 'pass', 'factory->parse');
+
+    $template = "[% factory.retrieve('thing', " . $thing->id . ").title %]";
+    $html = '';
+    $factory->process(\$template, { factory => $factory } , \$html);
+    is( $html, $thing->title, 'template calls to factory methods');
+}
+
 $factory->debug_level(1);
 
 is( $factory->debug_level, 1, 'debug level set');
 
-$factory->debug(1, 'this is a debugging warning. you should only see one.');
-$factory->debug(2, 'this is a debugging warning. you should only see one.');
-$factory->debug_level(0);
-$factory->debug(1, 'this is a debugging warning. you should only see one.');
+is_deeply( $factory->debug(1, ' '), (" \n"), 'message over debug threshold shown');
+
+is( $factory->debug(2, ' '), undef, 'message under debug threshold muted');
 
 
 
@@ -96,57 +119,20 @@ END {
     print "\nTest database deleted.\n\n" if $config->{db_type} eq 'SQLite' && unlink "${here}/cdftest.db";
 }
 
-
-
-
-
-
-
-
 sub set_up_database {
+    my $dsn = shift;
 	my $dbh;
-	eval { $dbh = DBI->connect("dbi:SQLite:dbname=cdftest.db","",""); };
-
-	unless ($@) {
-		$dbh->do('create table things (id integer primary key, title varchar(255), description text, date int);');
-		return {
-			db_type => 'SQLite',
-			db_name => 'cdftest.db',
-			db_username => '',
-			db_password => '',
-			db_host => '',
-			db_port => '',
-		};
-	} 
-	
-	print termwrap("\nSQLite doesn't seem to be installed. We can use mysql instead, if you can supply the name of a test database and a username and password that will give us access to it.");
-	print "\n\n";
-	
-	my $config = { db_type => 'mysql', db_host => 'localhost' };
-	my $connected = 0;
-	
-	until($connected) {
-		$config->{db_port} = prompt("x", "mysql port", 'default is very likely', $config->{db_port} || '3306');
-		$config->{db_name} = prompt("x", "database name?", '', $config->{db_name} || 'cdftest');
-		$config->{db_username} = prompt("x", "database user name?", '', $config->{db_username} || 'root');
-		$config->{db_password} = prompt("x", $config->{db_username} . "'s mysql password?", '! for blank', $config->{db_password});
-		$config->{db_password} = '' if $config->{db_password} eq '!';
-		my $dsn = "DBI:$$config{db_type}:database=$$config{db_name};host=localhost;port=$$config{db_port}";
-
-		eval{ $dbh = DBI->connect($dsn, $config->{db_username}, $config->{db_password}, {'RaiseError' => 1}); };
-
-		if ($@) {
-			print termwrap("\nConnecting to database failed, with the message:\n\n$@\nPlease check and try again.");
-			print "\n\n";
-		} else {
-			$connected = 1;
-		}
-	}
-	
- 	my $q = $dbh->do('show tables');
-	my $t = $dbh->do('describe things') unless $q eq '0E0';
-	$dbh->do('create table things (id int not null auto_increment, title varchar(255), description text,  date int, primary key (id));') unless $t;
-	return $config;
-}
+	eval { $dbh = DBI->connect($dsn,"",""); };
+    die "connecting to (and creating) SQLite database './cdftest.db' failed: $!" if $@;
+    $dbh->do('create table things (id integer primary key, title varchar(255), description text, date int);');
+    return {
+        db_type => 'SQLite',
+        db_name => 'cdftest.db',
+        db_username => '',
+        db_password => '',
+        db_host => '',
+        db_port => '',
+    };
+} 
 
 

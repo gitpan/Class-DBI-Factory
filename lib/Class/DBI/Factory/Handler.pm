@@ -11,7 +11,7 @@ use Data::Dumper;
 
 use vars qw( $VERSION );
 
-$VERSION = '0.73';
+$VERSION = '0.74';
 $|++;
 
 =head1 NAME
@@ -101,7 +101,7 @@ prints whatever you send it. In the old days this used to do the right thing abo
 
   $self->process( $template_path, $output_hashref );
 
-Uses the factory's Template object to display the output you provide in the template you specify. If you're using a templating system other than TT, this may be the only method you need to override.
+Hands over to the factory's C<process> method.
 
 =head2 build_page()
 
@@ -148,8 +148,7 @@ sub print {
 sub process {
 	my ($self, $template, $output) = @_;
 	$self->send_header;
-	$self->tt->process($template, $output, $self->request) || return $self->fail( $self->tt->error );
-	return 1;
+    $self->factory->process($template, $output, $self->request);
 }
 
 =head2 report()

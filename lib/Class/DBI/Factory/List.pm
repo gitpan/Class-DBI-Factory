@@ -5,7 +5,7 @@ use Carp qw();
 use vars qw( $AUTOLOAD $VERSION );
 use Data::Dumper;
 
-$VERSION = "0.73";
+$VERSION = "0.74";
 
 =head1 NAME
 

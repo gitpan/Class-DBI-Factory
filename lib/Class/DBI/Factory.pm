@@ -1,10 +1,11 @@
 package Class::DBI::Factory;
 use strict;
-use vars qw( $VERSION $AUTOLOAD $_factories );
 use Ima::DBI;
 use lib;
 
-$VERSION = '0.73';
+use vars qw( $VERSION $AUTOLOAD $_factories );
+
+$VERSION = '0.74';
 $_factories = {};
 
 =head1 NAME
@@ -478,6 +479,7 @@ sub load_classes {
 sub load_class {
 	my ($self, $class) = @_;
 	return unless $class;
+	$self->debug(3, "loading class '$class'");
 	eval "require $class";
 	if ($@) {
 		return if $self->failed_require($class, $@);
@@ -557,6 +559,8 @@ sub AUTOLOAD {
 	$method_name =~ s/.*://;
     return if $method_name eq 'DESTROY';
 
+	$self->debug(2, "AUTOLOAD: method_name is $method_name");
+
 	$self->load_classes;
 	return $self->_carp("Class::DBI::Factory needs a moniker.", caller) unless $moniker;
 	my $class = $self->class_name($moniker);
@@ -565,7 +569,7 @@ sub AUTOLOAD {
 	my $method = $self->permitted_methods($method_name);
 	return $self->_carp("Class::DBI::Factory::AUTOLOAD is trying to find a '$method_name' method that is not permitted") unless $method;
 	
-	$self->debug(3, "AUTOLOAD: $class->$method(" . join(', ', @_) . ");");
+	$self->debug(3, "$class->$method(" . join(', ', @_) . ");");
 	
 	return wantarray ? $class->$method(@_) : scalar( $class->$method(@_) );
 }
@@ -797,16 +801,23 @@ sub dbh {
 	my $self = shift;
 	return $self->{_dbh} = $_[0] if $_[0] && ref($_[0]) eq 'Ima::DBI';
 	return $self->{_dbh} if $self->{_dbh} && $self->{_dbh}->ping;
+
+	my $dsn = $self->dsn;
+	my $parameters = {
+        AutoCommit => $self->config->get('db_autocommit'), 
+        Taint => $self->config->get('db_taint'), , 
+        RaiseError => $self->config->get('db_raiseerror'), ,
+        ShowErrorStatement => $self->config->get('db_showerrorstatement'), 
+    };
+
+	$self->debug(2, "connecting to database with dsn '$dsn'");
+	$self->debug(3, "connection parameters: " . join("\n", map("$_ = $$parameters{$_}", keys %$parameters)));
+
 	my $dbh = Ima::DBI->connect_cached(
-		$self->dsn,
+		$dsn,
 		$self->config->get('db_username'), 
 		$self->config->get('db_password'), 
-		{
-		    AutoCommit => $self->config->get('db_autocommit'), 
-		    Taint => $self->config->get('db_taint'), , 
-		    RaiseError => $self->config->get('db_raiseerror'), ,
-            ShowErrorStatement => $self->config->get('db_showerrorstatement'), 
-        },
+		$parameters,
 	);
 	
 	$self->_croak("Class::DBI::Factory::dbh initialisation failed") unless $dbh;
@@ -824,12 +835,15 @@ Template paths can be supplied in two ways: as simple template_dir parameters, o
 sub tt {
 	my $self = shift;
 	return $self->{_tt} if $self->{_tt};
+	$self->debug(3, 'loading Template Toolkit');
 	
 	eval "require Template;";
-	return $self->_carp("Failed to load the template toolkit: $@") if $@;
+	return $self->_croak("Failed to load the template toolkit: $@") if $@;
 	
 	my $recursion = $self->config->get('allow_template_recursion') || '0';
-    my $path = $self->config->template_path;
+    my $path = $self->config->template_path || [];
+	$self->debug(3, "recursion is '$recursion'\ntemplate path is '" . join(', ', @$path) . "'");
+
 	my $tt = Template->new({ 
 		INCLUDE_PATH => $path, 
 		RECURSION => $recursion,
@@ -837,6 +851,27 @@ sub tt {
 	
 	$self->_croak("Template initialisation error: $Template::Error") unless $tt;
 	return $self->{_tt} = $tt;
+}
+
+=head2 process()
+
+  $self->process( $template_path, $output_hashref, $outcome_scalar_ref );
+
+Uses the local Template object to display the output data you provide in the template you specify and store the resulting text in the scalar (or request object) you supply (or to STDOUT if you don't). If you're using a templating system other than TT, this should be the only method you need to override.
+
+Note that C<process> returns Apache's OK on success and SERVER_ERROR on failure, and OK is zero. It means you can close a method handler with C<return $self->process(...)> but can't say C<$self->process(...) || $self->fail>.
+
+This is separated out here so that all data classes and handlers can use the same method for template-parsing. It should be easy to replace it with some other templating system, or amend it with whatever strange template hacks you like to apply before returning pages.
+
+=cut
+
+sub process {
+	my ($self, $template, $data, $outcome) = @_;
+	$self->debug(3, "processing template '$template'.");
+	return 0 if $self->tt->process($template, $data, $outcome);
+	$self->debug(2, "processing failed! " . $self->tt->error);
+    $self->_carp( $self->tt->error );
+    return 1;
 }
 
 =head2 pager()
@@ -1013,13 +1048,16 @@ sub _carp {
 	$msg ||= $self;
 	$msg .= " at $package line $line" if $package;
 	Carp::carp($msg);
+	$self->debug(1, $msg);
 	return;
 }
 
 sub _croak {
 	my ($self, $msg) = @_;
 	require Carp;
-	Carp::croak($msg || $self);
+	$msg ||= $self;
+	Carp::croak($msg);
+	$self->debug(1, $msg);
 	return;
 }
 
@@ -1088,7 +1126,10 @@ sub debug {
     my ($self, $level, @messages) = @_;
     return unless ref $self;
     my $threshold = $self->debug_level || 0;
-    warn map { "$_\n" } @messages if $level <= $threshold;
+    return if $level > $threshold;
+    my @errors = map { "$_\n" } @messages;
+    warn @errors;
+    return @errors;
 }
 
 =head2 timestamp()
