@@ -1,16 +1,30 @@
 Revision history for Perl extension Class::DBI::Factory.
 
+0.80
+    - Should be a drop-in replacement, with subclasses working exactly
+      as before, but much extended:
+    - Class::DBI::Factory::Exception now provides a base class for 
+      systematic, mod_perl-friendly exception handling. All CDF family
+      now throw exceptions based on Apache return codes.
+    - CDF::Handler now much more useful and adaptable: includes full 
+      request-handling skeleton that should allow handler classes of
+      only a few lines.
+    - CDF::Ghost added (from Delivery) to simplify handling of 
+      object precursors (and deletion relics).
+    - Demo application brought up to date. still doesn't store, though.
+    - We now have tests for all modules except the Handler, which is
+      only use_ok'd. Apache integration is needed for Handler tests :(
+
+0.77
+    - minor tweaks to handler base class provide a better way to set
+      mime type during response cycle.
+
 0.76  Tues 22 June 2004
     - Brought up to date with Class::DBI 0.96 and Ima::DBI 0.33
+      Definitely doesn't work with earlier versions: requirements updated.
       Not guaranteed (or likely) to work with later versions.
     - tweaks to documentation and tests
 
-0.752 Mon 21 June 2004
-    - bugfix: makefile was specifying Class::DBI 0.92. very bad. removed.
-    
-0.751 Sat 24 April 2004
-    - bugfix: lists with an id tag (aka prefix) now get the proper input values.
-    
 0.75 Fri 23 April 2004
     - list object now accepts prefix parameter used to mark input/output
       relevant to this list, and allow inclusion of several lists on one page.

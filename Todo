@@ -5,15 +5,10 @@ to do list for Perl extension Class::DBI::Factory.
 
 * proper exception-handling and bailing-out mechanism that respects 
   apache configuration and plays nicely with downstream handlers
-  - expected in ~0.8
+  - in 0.8
 
-* more tests for package-handling, configuration, subclassing 
-
-* decent default session mechanism
-
+* more tests for package-handling, exceptions, configuration, subclassing
+    
 * better shorter docs
 
-* wiki pages
-
-* move template-processing to Factory and allow more per-request 
-  overriding of configuration
+* wiki

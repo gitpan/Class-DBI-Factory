@@ -4,6 +4,5 @@
 [% FOREACH x = factory.all(type) %]
     <option value="[% x.id %]"[% ' selected' IF this.id == x.id %]> [% x.title %]</option>
 [% END %]
-</select><br>
-<a href="[% config.url %]?op=edit&[% type %]=new">create a new [% factory.title(type) %]</a>
+</select>
 </p>

@@ -3,19 +3,40 @@ use lib qw( ../lib ./test );
 use DBI;
 use Cwd;
 use Test::More;
+use Test::Exception;
+use Apache::Constants qw(:response);
 
 BEGIN {
     eval "use DBD::SQLite";
-    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 15);
+    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 39);
     use_ok('Class::DBI::Factory');
+    use_ok('Class::DBI::Factory::Config');
+    use_ok('Class::DBI::Factory::Handler');
+    use_ok('Class::DBI::Factory::List');
+    use_ok('Class::DBI::Factory::Ghost');
+    use_ok('Class::DBI::Factory::Exception', qw(:try));
 }
 
 my $here = cwd;
 my $now = scalar time;
 
-my $factory = Class::DBI::Factory->instance('_test', "$here/test/cdf.conf");
+$ENV{_SITE_ID} = '_test';
+$ENV{_CDF_CONFIG} = "$here/test/cdf.conf";
+
+my $factory = Class::DBI::Factory->instance;
 
 ok( $factory, 'factory object configured and built' );
+
+print "\nCONFIG\n\n";
+
+isa_ok($factory->config, 'Class::DBI::Factory::Config', 'CDFC properly loaded:');
+isa_ok($factory->config->{_ac}, 'AppConfig', 'CDFC AppConfig:');
+is($factory->config->get('refresh_interval'), '3600', 'config values');
+is($factory->config->get('template_root'), '<undef>', 'config non-values');
+
+
+
+print "\nFACTORY\n\n";
 
 my $dsn = "dbi:SQLite:dbname=cdftest.db";
 my $config = set_up_database($dsn);
@@ -62,6 +83,40 @@ my $count = $factory->count('thing');
 
 is( $count, 4, 'factory->count');
 
+my $dbh = $factory->dbh;
+isa_ok( $dbh, "DBIx::ContextualFetch::db", 'factory->dbh' );
+
+throws_ok { $factory->load_class('No::Chance::Boyo'); } 'Exception::SERVER_ERROR', 'SERVER_ERROR exception thrown by bad load_class call';
+throws_ok { $factory->fugeddaboutit('thing', 1); } 'Exception::SERVER_ERROR', 'SERVER_ERROR exception thrown by AUTOLOAD with disallowed method name';
+
+SKIP: {
+    eval "require Template;";
+    skip "Template not installed", 3 if $@;
+    
+    my $tt = $factory->tt;
+    isa_ok( $tt, "Template", 'factory->template' );
+    
+    my $html;
+    my $template = '[% test %]';
+    $factory->process(\$template, { test => 'pass' } , \$html);
+    is( $html, 'pass', 'factory->parse');
+
+    $template = "[% factory.retrieve('thing', " . $thing->id . ").title %]";
+    $html = '';
+    $factory->process(\$template, { factory => $factory } , \$html);
+    is( $html, $thing->title, 'template calls to factory methods');
+
+    $template = "[% IF 1 %][% factory.retrieve('thing', " . $thing->id . ").title %]";
+    $html = '';
+    throws_ok { $factory->process(\$template, { factory => $factory } , \$html); } 'Exception::SERVER_ERROR', 'SERVER_ERROR exception thrown by broken template';
+}
+
+print "\nHANDLER\n\n";
+
+print "Handler tests would require Apache::Test and Apache::MM and that seems like overkill here. Do get in touch if you disagree (or would like to write some :)\n";
+
+print "\nLIST\n\n";
+
 my $list = $factory->list('thing', date => $now, sortby => 'title');
 
 ok( $list, 'list construction');
@@ -79,27 +134,48 @@ my $count = $other_list->total;
 
 is( $count, 2, 'list from iterator');
 
-my $dbh = $factory->dbh;
-isa_ok( $dbh, "DBIx::ContextualFetch::db", 'factory->dbh' );
+throws_ok { $factory->list('anything'); } 'Exception::NOT_FOUND', 'NOT_FOUND exception thrown by list call with non-moniker';
+throws_ok { $factory->list_from(); } 'Exception::GLITCH', 'GLITCH exception thrown by bad list_from call';
 
-SKIP: {
-    eval { require Template };
-    skip "Template not installed", 3 if $@;
-    
-    my $tt = $factory->tt;
-    isa_ok( $tt, "Template", 'factory->template' );
-    
-    my $html;
-    my $template = '[% test %]';
-    $factory->process(\$template, { test => 'pass' } , \$html);
-    is( $html, 'pass', 'factory->parse');
+print "\nGHOST\n\n";
 
-    $template = "[% factory.retrieve('thing', " . $thing->id . ").title %]";
-    $html = '';
-    $factory->process(\$template, { factory => $factory } , \$html);
-    is( $html, $thing->title, 'template calls to factory methods');
+my $ghost = $factory->ghost_object('thing', {
+    title => 'testy',
+    description => 'wooooo',
+});
+
+ok ($ghost, 'ghost object created');
+is ($ghost->is_ghost, '1', 'ghost knows it\'s a ghost');
+is ($ghost->type, 'thing', 'ghost linked to correct data class');
+ok ($ghost->find_column('title'), 'ghost finds correct columns');
+is ($ghost->title, 'testy', 'ghost holds column values');
+isa_ok ($ghost->make, 'Thing', 'ghost make() object');
+
+print "\nEXCEPTIONS\n\n";
+
+# Handler tests mostly relate to exceptions
+
+throws_ok { test_404(); } 'Exception::NOT_FOUND', 'NOT_FOUND exception thrown';
+
+try {
+    test_404();
 }
+catch Exception::NOT_FOUND with {
+    my $ex = shift;
+    is ($ex->view, 'notfound', 'exception displays correct view');
+    is ($ex->text, 'Just testing', 'exception returns correct text');
+    is ($ex->stringify, 'Just testing', 'exception stringifies politely');
+}
+otherwise {
+    print "bad!";
+};
 
+sub test_404 {
+    throw Exception::NOT_FOUND(
+        -text => "Just testing", 
+        -view=>'404',
+    );
+}
 
 END {
     undef $factory;

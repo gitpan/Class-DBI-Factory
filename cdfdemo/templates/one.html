@@ -1,13 +1,3 @@
-[% INCLUDE furniture/head.html title=thing.title %]
+[% PROCESS "types/${thing.moniker}.html" %]
 
-[% INCLUDE "types/${thing.moniker}.html" %]
-
-<p>
-<a href="[% config.url %]?[% thing.moniker %]=[% thing.id %]&op=edit">edit this [% factory.title(thing.moniker) %]</a><br>
-<a href="[% config.url %]?[% thing.moniker %]=new&op=edit">create a new [% factory.title(thing.moniker) %]<br>
-<a href="[% config.url %]?type=[% thing.moniker %]">more [% factory.plural(thing.moniker) %]</a>
-</p>
-
-[% INCLUDE furniture/status.html %]
-
-[% INCLUDE furniture/foot.html %]
+[% PROCESS edit.html %]

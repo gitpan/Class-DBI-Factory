@@ -1,26 +1,13 @@
-[% INCLUDE furniture/head.html title=factory.plural(type) %]
 
-<h1>[% pager.total_entries %] [% IF page.total_entries == 1 %][% factory.title(type) %][% ELSE %][% factory.plural(type) %][% END %] found</h1>
+<h1>[% list.total_entries %] [% IF list.total_entries == 1 %][% factory.title(type) %][% ELSE %][% factory.plural(type) %][% END %] found</h1>
 
-[% FOREACH thing = pager.retrieve_all %]
+[% PROCESS furniture/pagination.html IF list.startat %]
+
+[% FOREACH thing = list.contents %]
 	<p><a href="[% config.url %]?[% thing.moniker %]=[% thing.id %][% IF thing.moniker == 'track' %]#track[% thing.id %][% END %]">[% thing.title %]</a><br>
 	[% thing.description %]</p>
 [% END %]
 
-[% IF pager.total_entries > pager.entries_per_page %]
+[% PROCESS furniture/pagination.html %]
 
-    [% FOREACH p = [pager.first_page .. pager.last_page] %]
-    [% IF p == pager.current_page %]
-        [[% p %]]
-    [% ELSE %]
-        <a href="[% config.url %]?type=[% type %]&page=[% num %]&step=[% step %]">[% num %]</a>[% END %]
-    [% END %]
-    
-[% END %]
-
-<p>
-<a href="[% config.url %]?[% type %]=new&op=edit">create a new [% factory.title(type) %]</a>
-</p>
-
-[% INCLUDE furniture/foot.html %]
-[% INCLUDE furniture/status.html %]
+[% PROCESS edit.html thing='' %]

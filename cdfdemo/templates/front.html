@@ -1,8 +1,6 @@
-[% INCLUDE furniture/head.html title="cdf demo: welcome" %]
-
 <h1>hello</h1>
 
-<p>This is an idiotically simple browser whose only purpose is to demonstrate how easy it is to create an application with Class::DBI::Factory. Let us therefore imagine that someone is compiling a database of miserable music, but for artistic reasons has decided to replace most of the item descriptions with helpful remarks about an extremely obscure perl module, and browse:</p>
+<p>This is an idiotically simple browser whose only purpose is to demonstrate how easy it is to create an application with Class::DBI::Factory.</p>
 
 [% FOREACH c = factory.classes %]
 <p>
@@ -10,7 +8,3 @@
 	[% factory.description(c) %]
 </p>
 [% END %]
-
-[% INCLUDE furniture/foot.html %]
-
-[% INCLUDE furniture/status.html %]

@@ -10,6 +10,6 @@ My::Artist->has_many( albums => 'My::Album' );
 
 sub class_title { 'Artist' }
 sub class_plural { 'Artists' }
-sub class_description { 'CDF comes with readymade mod_perl handler, configuration and pagination classes.' }
+sub class_description { 'The Artist class.' }
 
 1;

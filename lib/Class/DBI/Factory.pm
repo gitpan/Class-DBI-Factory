@@ -1,10 +1,14 @@
 package Class::DBI::Factory;
 use strict;
+
+use Class::DBI::Factory::Exception qw(:try);
 use Ima::DBI;
+use Email::Send;
+use Data::Dumper;
 
 use vars qw( $VERSION $AUTOLOAD $_factories );
 
-$VERSION = '0.76';
+$VERSION = '0.8';
 $_factories = {};
 
 =head1 NAME
@@ -249,7 +253,7 @@ sub package_file_name { 'packages.conf' }
 sub config_file_name { 'cdf.conf' }
 
 sub global_config_file { 
-    return _if_file_exists($ENV{'_CDF_CONFIG'}); 
+    return _if_file_exists($ENV{'_CDF_CONFIG'});
 }
 
 sub site_package_file { 
@@ -267,9 +271,8 @@ sub site_config_file {
 sub _if_file_exists {
     my $f = shift;
     $f =~ s/\/+/\//g;
-    return $f if -e $f && -f $f && -r $f;
+    return $f if -e $f && -f _ && -r _;
     return;
-
 }
 
 =head1 CONSTRUCTION
@@ -369,8 +372,7 @@ sub config_class { "Class::DBI::Factory::Config" }
 
 sub build_config {
 	my ($class, $global_config_file, $site_package_file, $site_config_file) = @_;
-	eval "require " . $class->config_class . ";";
-	return $class->_carp("failed to load config class: $@") if $@;
+    $class->_require_class( $class->config_class );
 	
 	my $config = $class->config_class->new;
 	$global_config_file ||= $class->global_config_file;
@@ -459,16 +461,13 @@ only the moniker is compulsory, and the standard cdbi moniker provides a fallbac
 This is another placeholder: it's called after each class is loaded, and supplied with the moniker and class name. The most likely use for this method is to make the factory, template, configuration or other system component available as a class variable, but remember that will break under mod_perl if you want more than one instance of the application.
 
 By default post_require does nothing. The return value is not checked.
-
-=head2 failed_require
-
-If the class fails to load, this method will be called and supplied with the class name and error. If it returns a true value, then loading will continue: if not then we call C<_croak> and presumably terminate the application. By default it will just C<_carp> and return true to keep going.
 	
 =cut
 
 sub load_classes {
 	my ($self, $reload) = @_;
 	return if $self->{_loaded} && ! $reload;
+	$self->debug(3, "loading data classes");
 	$self->pre_require();
 	$self->load_class($_) for @{ $self->class_names };
 	$self->{_loaded} = 1;
@@ -478,14 +477,16 @@ sub load_classes {
 sub load_class {
 	my ($self, $class) = @_;
 	return unless $class;
-	$self->debug(3, "loading class '$class'");
-	eval "require $class";
-	if ($@) {
-		return if $self->failed_require($class, $@);
-		$self->_croak($@);
-	}
+	$self->debug(5, "loading class '$class'");
+	$self->_require_class($class);
 	my $moniker = $self->assimilate_class($class);
 	$self->post_require($moniker, $class);
+}
+
+sub _require_class {
+	my ($self, $class) = @_;
+	eval "require $class";
+    throw Exception::SERVER_ERROR(-text => "failed to load class '$class': $@") if $@;
 }
 
 sub assimilate_class {
@@ -498,12 +499,6 @@ sub assimilate_class {
 	$self->{_plural}->{$moniker} = $class->class_plural;
 	$self->{_description}->{$moniker} = $class->class_description;
 	return $moniker;
-}
-
-sub failed_require {
-	my ($self, $class, $error) = @_;
-	$self->_carp("failed to load class '$class': $error");
-	return 1;
 }
 
 sub pre_require { return }
@@ -554,21 +549,21 @@ Which will of course fail if no C<latest> method has been defined (or no My::CD 
 sub AUTOLOAD {
 	my $self = shift;
 	my $moniker = shift;
+	$self->load_classes;
 	my $method_name = $AUTOLOAD;
 	$method_name =~ s/.*://;
     return if $method_name eq 'DESTROY';
 
-	$self->load_classes;
-	return $self->_carp("Class::DBI::Factory needs a moniker.", caller) unless $moniker;
-
 	my $class = $self->class_name($moniker);
-	return $self->_carp("Class::DBI::Factory is trying to use a '$moniker' moniker that doesn't exist.") unless $class;
+	$self->debug(1, "bad AUTOLOAD call: no class from moniker '$moniker'") unless $class;
+  	return unless $class;
 	
 	my $method = $self->permitted_methods($method_name);
-	return $self->_carp("Class::DBI::Factory::AUTOLOAD is trying to find a '$method_name' method that is not permitted") unless $method;
+  	throw Exception::SERVER_ERROR(
+  	    -text => "Class::DBI::Factory::AUTOLOAD is trying to call a '$method_name' method that is not recognised",
+    ) unless $method;
 	
 	$self->debug(4, "AUTOLOAD: $class->$method(" . join(', ', @_) . ");");
-	
 	return wantarray ? $class->$method(@_) : scalar( $class->$method(@_) );
 }
 
@@ -659,6 +654,43 @@ sub has_class {
 	my ($self, $moniker) = @_;
 	$self->load_classes;
 	return 1 if exists $self->{_class_name}->{$moniker};
+}
+
+=head2 ghost_class()
+
+Override to use a ghost class other than Class::DBI::Factory::Ghost (eg if you have subclassed it).
+
+=cut
+
+sub ghost_class { 'Class::DBI::Factory::Ghost' }
+
+=head2 ghost_object( moniker, columns_hashref )
+
+Creates and returns an object of the ghost class, which is just a data-holder used to populate forms.
+
+=cut
+
+sub ghost_object {
+    my ($self, $type, $columns) = @_;
+    my ($package, $filename, $line) = caller;
+    $self->debug(3, 'ghost_object(' . join(',',@_) . ") at $package line $line");
+    $self->_require_class( $self->ghost_class );
+    $columns->{type} = $type;
+    return $self->ghost_class->new($columns);
+}
+
+=head2 ghost_from( data_object )
+
+Returns a ghost object based on the class and properties of the supplied real object. Useful to keep a record of an object about to be deleted, for example.
+
+=cut
+
+sub ghost_from {
+    my ($self, $thing) = @_;
+    return $self->ghost_object($thing->type, { 
+        map { $_ => $thing->$_() } $thing->columns('All')
+    });
+    
 }
 
 =head2 title() plural() description()
@@ -798,11 +830,10 @@ Template paths can be supplied in two ways: as simple template_dir parameters, o
 sub tt {
 	my $self = shift;
 	return $self->{_tt} if $self->{_tt};
+
 	$self->debug(3, 'loading Template Toolkit');
-	
-	eval "require Template;";
-	return $self->_croak("Failed to load the template toolkit: $@") if $@;
-	
+    $self->_require_class( 'Template' );
+
 	my $recursion = $self->config->get('allow_template_recursion') || '0';
     my $path = $self->config->template_path || [];
 	$self->debug(3, "recursion is '$recursion'\ntemplate path is '" . join(', ', @$path) . "'");
@@ -812,7 +843,7 @@ sub tt {
 		RECURSION => $recursion,
 	});
 	
-	$self->_croak("Template initialisation error: $Template::Error") unless $tt;
+  	throw Exception::SERVER_ERROR(-text => "Template initialisation error: $Template::Error") unless $tt;
 	return $self->{_tt} = $tt;
 }
 
@@ -832,8 +863,7 @@ sub process {
 	my ($self, $template, $data, $outcome) = @_;
 	$self->debug(3, "processing template '$template'.");
 	return 0 if $self->tt->process($template, $data, $outcome);
-	$self->debug(2, "processing failed! " . $self->tt->error);
-    $self->_carp( $self->tt->error );
+  	throw Exception::SERVER_ERROR(-text => $self->tt->error);
     return 1;
 }
 
@@ -849,13 +879,8 @@ Should return the Full::Class::Name that will be used to create pagers. Defaults
 
 =cut
 
-sub pager_class { "Class::DBI::Pager" }
-
 sub pager {
 	my ($self, $moniker, $perpage, $page) = @_;
-	my $class =  $self->pager_class || return;
-	eval "require $class;";
-	return $self->_carp("failed to load pager class: $@") if $@;
 	$perpage ||= 10;
 	$page ||= 1;
 	return $self->class_name($moniker)->pager($perpage, $page); 
@@ -893,33 +918,18 @@ sub list_class { "Class::DBI::Factory::List" }
 
 sub list {
 	my ($self, $moniker, %criteria) = @_;
-	my $class =  $self->list_class || return;
-	eval "require $class;";
-	return $self->_carp("failed to load list class: $@") if $@;
-
- 	$criteria{class} = $self->class_name( $moniker );
-	return $self->_carp("Class::DBI::Factory->list: no class found (nor retrieved from moniker '$moniker'). Cannot build list. \n") unless $criteria{class};
-
+    $self->_require_class( $self->list_class );
  	my %inflated_criteria = map { $_ => $self->reify( $criteria{$_}, $_ ) } keys %criteria;
-	return $self->list_class->new(\%inflated_criteria, $self);
+ 	$inflated_criteria{moniker} ||= $moniker;
+	return $self->list_class->new(\%inflated_criteria);
 }
 
 sub list_from {
 	my ($self, $iterator, $source, $param) = @_;
-    return unless $iterator;
-	my $class =  $self->list_class || return;
-	eval "require $class;";
-	return $self->_carp("failed to load list class: $@") if $@;
-	return $self->list_class->from( $iterator, $source, $param, $self );
+  	throw Exception::GLITCH(-text => "Class::DBI::Factory->list_from: no iterator supplied. Cannot build list.") unless $iterator;
+    $self->_require_class( $self->list_class );
+	return $self->list_class->from( $iterator, $source, $param );
 }
-
-=head2 from_input()
-
-Uses L<Class::DBI::FromCGI> to create or update the object specified by type (ie moniker) and id input parameters. L<CGI::Untaint> is required, and your data classes must include a C<use Class::DBI::FromCGI;> line if they are to have access the necessary methods. 
-
-This is a B<very> basic input mechanism and included here only to mark the place where something more sophisticated would go.
-
-  my $thing = $factory->from_input($request);
 
 =head2 reify()
 
@@ -955,33 +965,6 @@ By default the only mapping is that 'parent' is assumed to be a relationship wit
 
 =cut
 
-sub from_input {
-	my ($self, $request) = @_;
-	
-	eval "require CGI::Untaint;";
-	return $self->_carp("failed to load CGI::Untaint: $@") if $@;
-	
-	my %parameters = map { $_ => $request->param($_) } keys %{ $request->parms };
-	my $taint_handler = CGI::Untaint->new( %parameters );
-	my $id = $taint_handler->extract(-as_printable => 'id');
-	my $moniker = $taint_handler->extract(-as_printable => 'type');
-	return unless $id && $moniker;
-	
-	my $class = $self->class_name($moniker);
-	return unless $class;
-	
-	my $thing;
-	if ($moniker && $id ne 'new') {
-		$thing = $self->retrieve($moniker, $id);
-		$thing->update_from_cgi($taint_handler);
-	} elsif ($moniker) {
-		$thing = $class->create_from_cgi($taint_handler);
-	}
-	
-	$thing->update;
-	return $thing;
-}
-
 sub reify {
 	my ($self, $content, $column, $this_moniker) = @_;
 	return $content unless $column;
@@ -998,35 +981,6 @@ sub type_map {
 }
 
 =head1 ADMINISTRIVIA
-
-=head2 _carp()
-
-as usual, non-fatal errors are directed to C<_carp>, which can be called as a method or a normal sub with the same results. By default it just calls C<Carp::carp>.
-
-=head2 _croak()
-
-fatal errors are sent to C<_croak>. You can make them non-fatal by overriding it, of course. By default it just calls C<Carp::croak>.
-
-=cut
-
-sub _carp {
-	my ($self, $msg, $package, $filename, $line) = @_;
-	require Carp;
-	$msg ||= $self;
-	$msg .= " at $package line $line" if $package;
-	Carp::carp($msg);
-	$self->debug(1, $msg);
-	return;
-}
-
-sub _croak {
-	my ($self, $msg) = @_;
-	require Carp;
-	$msg ||= $self;
-	Carp::croak($msg);
-	$self->debug(1, $msg);
-	return;
-}
 
 =head2 log()
 
@@ -1084,7 +1038,7 @@ adds more detail, and...
 
 sub debug {
     my ($self, $level, @messages) = @_;
-    return unless ref $self;
+    return unless ref $self && @messages;
     my $threshold = $self->debug_level || 0;
     return if $level > $threshold;
     my $tag = "[" . $self->id . "]";
@@ -1097,6 +1051,67 @@ sub debug_level {
     return $self->{_debug_level} = $_[0] if @_;
     return $self->{_debug_level} if $self->{_debug_level};
     return $self->{_debug_level} = $self->config->get('debug_level');
+}
+
+=head2 email_message( parameter_hashref )
+
+Sends email (using Email::Send). The hashref of parameters must include at least 'to' and 'subject' or we'll bail silently. It can also include either a 'message' parameter containing the text of the message, or a 'template' parameter containing the address of the TT template that should be used to produce the message. The whole parameter hashref will be passed on to the template, so any other variables you want to make available can just be included there.
+
+If both message and template parameters are supplied, we will use the template and hope that it has a [% message %] somewhere. If neither is supplied, the result will be an empty message with the subject and address you supply (which might be all that's required).
+
+Parameter names are all lower-case, but remember to capitalise the From, To and Subject in message templates.
+
+If you're having trouble with this, check your configuration's 'default_mailer' parameter, and compare against the documentation for L<Email::Send>. It has probably defaulted to Sendmail.
+
+=cut
+
+sub email_message {
+	my ( $self, $instructions ) = @_;
+	
+	$self->debug(5, 'sending email message with: ' . Dumper($instructions));
+	
+	return unless $instructions->{subject} && $instructions->{to};
+    $instructions->{from} ||= $self->config->get('mail_from');
+	my $mailer = $self->config->get('default_mailer') || 'Sendmail';
+
+	if ($instructions->{template}) {
+	    my $ctype = 'text/html; charset="iso-8859-1"' if $instructions->{as_html};
+	    my $message;
+        $self->process( $instructions->{template}, {
+            factory => $self,
+            config => $self->config,
+            date => $self->now,
+    		%$instructions,
+        }, \$message );
+        send $mailer => $message;
+
+	} else {
+        
+        send $mailer => <<"__ENDS__";
+To: $$instructions{to}
+From: $$instructions{from}
+Subject: $$instructions{subject}
+
+$$instructions{message}
+__ENDS__
+    }
+}
+
+=head2 email_admin( parameter_hashref )
+
+A shortcut that will send a message to the configured admin address. This is mostly useful for error messages, which can be as simple as:
+
+  $factory->email_admin({
+    subject => 'uh oh',
+    message => 'Something terrible has happened.',
+  };
+
+=cut
+
+sub email_admin {
+	my ( $self, $instructions ) = @_;
+    $instructions->{to} = $self->config->get('admin_email');
+    $self->email_message($instructions);
 }
 
 =head2 timestamp()
@@ -1174,13 +1189,10 @@ Are likely. Please use http://rt.cpan.org/ to report them, or write to wross@cpa
 Ensure cross-database compatibility (I've only used this with mysql and sqlite). Especially problematic for CDF::List, probably.
 
 =item *
-Improve (er, introduce) proper exception-handling.
-
-=item *
 Improve Apache::Status reports. Include optional logs and error reports.
 
 =item *
-Write direct tests for the other three modules
+Write direct tests for the other modules
 
 =back
 
@@ -1202,7 +1214,7 @@ Write direct tests for the other three modules
 
 =head1 SEE ALSO
 
-L<Class::DBI> L<Class::DBI::Factory::List> L<Class::DBI::Factory::Config> L<Class::DBI::Factory::Handler>
+L<Class::DBI> L<Class::DBI::Factory::List> L<Class::DBI::Factory::Config> L<Class::DBI::Factory::Handler> L<Class::DBI::Factory::Exception>  L<Class::DBI::Factory::Ghost>
 
 =head1 AUTHOR
 

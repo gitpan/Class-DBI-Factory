@@ -3,9 +3,8 @@ package Class::DBI::Factory::List;
 use strict;
 use Carp qw();
 use vars qw( $AUTOLOAD $VERSION );
-use Data::Dumper;
 
-$VERSION = "0.751";
+$VERSION = "0.8";
 
 =head1 NAME
 
@@ -65,7 +64,7 @@ In the absence of any parameters apart from the content class, the module functi
 To build a list from scratch, you just need to supply a hashref of criteria that contains at least a 'class' parameter, which should be a Full::Class::Name. In this call:
 
 	my $list = Class::DBI::Factory::List->new({
-		 class => My::CD,
+		 moniker => 'cd',
 		 genre => $genre,
 		 year => 1975,
 		 startat => 0,
@@ -73,9 +72,9 @@ To build a list from scratch, you just need to supply a hashref of criteria that
 		 sortby => 'title',
 	 });
 
-The class criterion is pulled out to give us the content class for the list. The startat, step and sortby criteria are pulled out and stored as display constraints. The remaining criteria are held as the parameters which will be used passed to the $content_class->search() method when the time comes to display the list.
+A quicxk call to the factory gives us a fully qualified class name for the moniker. The startat, step and sortby criteria are pulled out and stored as display constraints. The remaining criteria are held as the parameters which will be used passed to the $content_class->search() method when the time comes to display the list.
 
-Note that if your application is using Class::DBI::Factory and the Template Toolkit, creating a list on page can be as simple as:
+So if your application is using Class::DBI::Factory and the Template Toolkit, creating a list on page can be as simple as:
 
 	[% list = factory.list(
 		'cd',
@@ -93,11 +92,12 @@ my $list = Class::DBI::Factory::List->from( $iterator, $artist, { step => 20 });
 =cut
 
 sub new {
-	my ( $class, $input, $factory ) = @_;
-	my $content_class = delete $input->{class};
+	my ( $class, $input ) = @_;
+	my $moniker = delete $input->{moniker};
+    throw Exception::NOT_FOUND(-text => 'No such content class.') unless $class->factory->has_class( $moniker );
+    
+    my $content_class = $class->factory->class_name($moniker);
     my $prefix = delete $input->{prefix};
-	return warn "Class::DBI::Factory::List must be supplied with at least a class parameter as full::class::name" unless ($content_class);
-
 	my %parameters =  map { $_ => ($input->{$_} || $class->default($_)) } grep { $content_class->find_column($_) } keys %$input;
 	my %constraints = map { $_ => ($input->{$_} || $class->default($_)) } keys %{ $class->default };
 	my $self = bless {
@@ -105,16 +105,14 @@ sub new {
 		_constraints => \%constraints,
 		_class => $content_class,
 	    _prefix => $prefix,
-	    _factory => $factory,
 	}, $class;
-
-    $self->debug(2, "*** new list. content_class is $content_class and prefix is $prefix");
-    
+    $self->debug(3, "new list. content_class is $content_class and prefix is '$prefix");
     return $self;
 }
 
 sub from {
-	my ($class, $iterator, $source, $param, $factory) = @_;
+	my ($class, $iterator, $source, $param) = @_;
+	throw Exception::SERVER_ERROR(-text => "CDF::List can't make a list from an iterator without an iterator") unless $iterator;
 	my $content_class = $iterator->class;
     my $prefix = delete $param->{prefix};
 	my %parameters =  ( $source->type => $source->id ) if $source;
@@ -125,7 +123,6 @@ sub from {
 		_constraints => \%constraints,
 		_class => $content_class,
 	    _prefix => $prefix,
-	    _factory => $factory,
 	}, $class;
     $self->debug(2, "*** list from iterator. content class is $content_class.");
     return $self;
@@ -153,13 +150,30 @@ you can also get at the iterator directly, if your requirements are more complic
 
 =cut 
 
-sub content_class { shift->{_class} }
+sub content_class { 
+    my $self = shift;
+    $self->{_class} = $_[0] if @_;
+    throw Exception::SERVER_ERROR(-text => 'List has no content class.') unless $self->{_class};
+    return $self->{_class};
+}
 
 sub iterator {
 	my $self = shift;
 	$self->debug(3, "CDF::List->iterator.");
 	return $self->{iterator} if $self->{iterator};
-	return $self->{iterator} = $self->content_class->search( %{ $self->where }, {order_by => $self->order_by});
+
+	my $ob = $self->order_by;
+    my $obclause = { order_by => $ob } if $ob;    
+	my $whereclause = $self->where;
+    my $iterator = $whereclause ? 
+                   $self->content_class->search( %$whereclause, $obclause ) : 
+                   $self->content_class->retrieve_all( $obclause );
+
+    return $self->{iterator} = $iterator;
+}
+
+sub object_type {
+	return shift->content_class->moniker;
 }
 
 sub contents {
@@ -241,8 +255,13 @@ sub where {
 sub order_by {
 	my $self = shift;
 	my $ob = $self->constraints('sortby');
-	$ob .= ' DESC' if $self->constraints('sortorder') =~ /desc/i;
+	return unless $ob && $self->content_class->find_column($ob);
 	return $ob;
+}
+
+sub order_desc {
+	my $self = shift;
+    return ' DESC' if $self->constraints('sortorder') =~ /desc/i;
 }
 
 sub start { 
@@ -491,12 +510,8 @@ returns the full name of the class that should be used to instantiate the factor
 
 =cut
 
-sub factory_class { 'Class::DBI::Factory' }
-
-sub factory {
-	my $self = shift;
-	return $self->{_factory} ||= $self->factory_class->instance;
-}
+sub factory_class { "Class::DBI::Factory" }
+sub factory { return shift->factory_class->instance; }
 
 =head2 default()
 

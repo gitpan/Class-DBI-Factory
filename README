@@ -1,10 +1,10 @@
-Class::DBI::Factory v0.74
+Class::DBI::Factory v0.8
 
 In addition to the prerequisites recorded in the makefile, the tests for this module
 use DBD::SQLite and will skip if it's not installed.
 
-The enclosed demo application - in ./demo - also requires DBD::SQLite, and its 
-installer uses Term::Prompt and File::Ncopy.
+The enclosed demo application - in ./cdfdemo - also requires DBD::SQLite, and its 
+installer uses Term::Prompt and File::NCopy.
 
 Please send comments (about this inconvenience or anything else) to wross@cpan.org.
 
@@ -12,4 +12,4 @@ Hope this is useful.
 
 will
 
-3.3.04
+16.8.04
