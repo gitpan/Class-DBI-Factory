@@ -5,7 +5,7 @@ use base qw(Error);
 use overload ('""' => 'stringify');
 
 use vars qw( $VERSION $factory_class );
-$VERSION = '0.1';
+$VERSION = '0.2';
 $factory_class = 'Class::DBI::Factory';
 
 =head1 NAME
@@ -136,6 +136,10 @@ This returns the set of detailed error messages supplied (as the -errors paramet
 
 Returns the name of the view to which we should redirect the user who has encountered this error. Usually login-related. Corresponds to the -view parameter.
 
+=head2 handler_url()
+
+Returns the address of the handler passed in as part of the exception. This is normally used as the stem of a redirect instruction.
+
 =head2 thing()
 
 Returns the data object that was passed in as part of the exception (using the -object parameter).
@@ -185,13 +189,15 @@ sub notify_admin {
         file => $self->file,
         object => $self->object,
         trace => $self->stacktrace,
+        url => $self->url,
+        qs => $self->qs,
     });
 }
 
 sub redirect_to {
     my $self = shift;
     return $self->url if $self->url;
-    my $stem = $self->factory->config->get('url');
+    my $stem = $self->handler_url || $self->factory->config->get('url');
     my $view = '&view=' . $self->view if $self->view;
     return "${stem}?" . $self->thing->moniker . '=' . $self->thing->id . $view if $self->thing;
     return "${stem}?" . $self->type . '=' . $self->id . $view if $self->type && $self->id;
@@ -205,10 +211,12 @@ sub errors {
 }
 
 sub url { shift->{-url} }
+sub qs { shift->{-qs} }
 sub thing { shift->object }
 sub view { shift->{-view} }
 sub type { shift->{-type} }
 sub id { shift->{-id} }
+sub handler_url { shift->{-handler} }
 sub return_code { shift->{-return_code} || SERVER_ERROR }
 sub persevere { 0 }
 sub do_notify { 0 } 

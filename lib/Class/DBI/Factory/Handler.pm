@@ -12,7 +12,7 @@ use Data::Dumper;
 
 use vars qw( $VERSION );
 
-$VERSION = '0.8';
+$VERSION = '0.83';
 $|++;
 
 =head1 NAME
@@ -106,7 +106,7 @@ Accepts a (fully specified) template address and output hashref and passes them 
 
 sub process {
 	my ($self, $template, $output) = @_;
-	$self->debug(3, "processing template: $template");
+	$self->debug(3, "DMH: processing template: '$template'");
 	$self->send_header;
     $self->factory->process($template, $output, $self->request);
 }
@@ -186,7 +186,7 @@ sub build_page {
 	
 	$self->debug(1, "\n\n\n____________REQUEST: " . $self->full_url);
     $self->debug(3, "task sequence: " . join(', ', $self->task_sequence));
-    my $return_code;
+    my $return_code = OK;
 	
     try {
         $self->$_() for $self->task_sequence;
@@ -195,7 +195,7 @@ sub build_page {
         my $x = shift;
         $self->debug(1, 'caught OK exception: ' . $x->text);
         $self->view( $x->view );
-        $self->error( @{ $x->errors });
+        $self->error( @{ $x->errors }) if $x->errors;
         $self->message( $x->text );
         $self->return_output;
     }
@@ -203,14 +203,12 @@ sub build_page {
         my $x = shift;
         $self->debug(1, 'caught NOT_FOUND exception: ' . $x->text);
         my $view = $x->view || 'notfound';
-        $self->return_code( $x->return_code );
-        $self->return_error( $view, $x);
+        $self->return_error( $view, $x );
     }
     catch Exception::AUTH_REQUIRED with {
         my $x = shift;
         $self->debug(1, 'caught AUTH_REQUIRED exception: ' . $x->text);
         my $view = $x->view || ($self->session ? 'denied' : 'login');
-        $self->return_code( $x->return_code );
         $self->return_error( $view, $x );
     }
     catch Exception::SERVER_ERROR with {
@@ -219,21 +217,19 @@ sub build_page {
         $x->log_error;
         $x->notify_admin;
         my $view = $x->view || 'error';
-        $self->return_code( $x->return_code );
         $self->return_error( $view, $x );
     }
     catch Exception::REDIRECT with {
         my $x = shift;
         $self->debug(1, 'caught REDIRECT exception: ' . $x->text);
-        $self->return_code( REDIRECT );
         $self->redirect( $x->redirect_to );
     }
     otherwise {
         my $x = shift;
         $self->debug(1, 'caught unknown exception: ' . $x->text);
-        $self->return_code( SERVER_ERROR );
         $self->return_error( 'error', $x );
     };
+    #return $return_code;
 }
 
 =head2 task_sequence() 
@@ -277,13 +273,15 @@ sub read_input {
     	$self->debug(3, "no id or type parameters. scanning input for class monikers.");
         my @monikers = grep { $self->param($_) } @{ $self->factory->classes };
         my $moniker = $monikers[0];
-        $self->set_param(type => $moniker);
-        $self->set_param(id => $self->param($moniker)) unless $self->param($moniker) eq 'all';
-		$self->delete_param($moniker);
+        if ($moniker) {
+            $self->set_param(type => $moniker);
+            $self->set_param(id => scalar($self->param($moniker))) unless scalar($self->param($moniker)) eq 'all';
+            $self->delete_param($moniker);
+        }
 	}
 
-	unless ($self->param('id') || $self->param('type') || $self->param('moniker')) {
-    	$self->debug(3, "no id or type parameters. checking path info.");
+	unless ($self->param('id') || $self->param('type') || $self->param('moniker') || $self->param('view')) {
+    	$self->debug(3, "no id, type or view parameter. checking path info.");
         my ($general, $specific) = $self->read_path_info;
         if ($general eq 'op' && $specific) {
             $self->set_param('op', $specific);
@@ -304,29 +302,34 @@ Looks for a 'view' parameter in input and calls C<permitted_view> to compare it 
 
 Can be supplied with a value. Defined but non-true values will be accepted and retained, so to clear the view setting, just call C<view(0)>.
 
-Either way, if a view value is present, this method throws a NOT_FOUND exception unless it is allowed.
+Either way, if a view value is present (and no object is returned by self->thing, in which case the view parameter points to an object template not a proper view), this method throws a NOT_FOUND exception unless it is allowed.
 
 =cut
 
 sub view {
 	my $self = shift;
+	$self->debug(4, 'CDFH->view(' . join(',',@_) . ')');
     $self->set_param(view => $_[0]) if @_;
     return unless $self->param('view');
-  	throw Exception::NOT_FOUND(-text => "No '" . $self->param('view') . "' view found") unless $self->thing || $self->permitted_view(scalar( $self->param('view') ));
+  	$self->check_view unless $self->thing;
     return scalar( $self->param('view') );
 }
 
-=head3 permitted_view( view_name )
+=head3 check_view( view_name )
 
-Checks the supplied view name against the list of permitted views (ie the 'permitted_view' configuration parameter). Returns true if it is found there.
+Checks the supplied view name against the list of public and private views available here (ie the 'public_view' and 'private_view' configuration parameters). Returns true if the view is allowed: throws an exception of the appropriate kind if it doesn't exist or isn't allowed.
 
 =cut
 
-sub permitted_view {
+sub check_view {
 	my ($self, $view) = @_;
-    my @views = $self->config->get('permitted_view');
-    my %permission = map {$_ => 1} @views;
-    return $permission{$view};
+	$view ||= scalar( $self->param('view') );
+    my %public = map { $_ => 1} $self->config->get('public_view');
+    my %private = map { $_ => 1} $self->config->get('private_view');
+    throw Exception::NOT_FOUND(-text => "No '$view' view exists here.") unless $private{$view} || $public{$view};
+    return 1 if $public{$view};
+    throw Exception::AUTH_REQUIRED(-text => "'$view' view not allowed") unless $self->session;
+    return 1;
 }
 
 =head3 type( moniker )
@@ -343,8 +346,22 @@ sub type {
 	my $self = shift;
 	$self->debug(4, 'CDFH->type(' . join(',',@_) . ')');
     $self->set_param(type => $_[0]) if @_;
-  	throw Exception::NOT_FOUND(-text => "No '" . $self->param('type') . "' data class found") if $self->param('type') and not $self->factory->has_class(scalar( $self->param('type') ));
+    return unless $self->param('type');
+  	throw Exception::NOT_FOUND(-text => "No '" . $self->param('type') . "' data class found") unless $self->check_type;
     return scalar( $self->param('type') );
+}
+
+=head3 check_type( view_name )
+
+Checks that the supplied moniker is among those managed by the local factory. Subclasses will hopefully have stricter criteria for who can see what.
+
+=cut
+
+sub check_type {
+    my ($self, $type) = @_;
+    $type ||= scalar($self->param('type'));
+	$self->debug(4, 'CDFH->permitted_type($type)');
+    return $self->factory->has_class($type);
 }
 
 =head3 id( int )
@@ -376,12 +393,31 @@ sub thing {
 	return $self->{thing} = $_[0] if @_;
 	return $self->{thing} if defined $self->{thing};
 	
-	return unless $self->type && $self->id;
-    return $self->{thing} = $self->ghost if $self->type && $self->id && $self->id eq 'new';
+	# we have to bypass the checking carried out by type(), so that individual objects have a chance to override category rules.
+	
+	my $type = $self->param('type');
+	my $id = $self->param('id');
+	return unless $type && $id;
+    return $self->{thing} = $self->ghost if $id eq 'new';
     
-    my $thing = $self->factory->retrieve( $self->type, $self->id );
-   	throw Exception::NOT_FOUND(-text => "There is no object of type " . $self->type . " with id " . $self->id) unless $thing;
+    my $thing = $self->factory->retrieve( $type, $id );
+   	throw Exception::NOT_FOUND(-text => "There is no object of type $type with id $id") unless $thing;
+   	throw Exception::AUTH_REQUIRED(-text => "You are not authorised to see that object") unless $self->check_thing($thing);
+
     return $self->{thing} = $thing;
+}
+
+=head3 check_thing( data_object )
+
+Just a placeholder: checks object-type visibility. 
+
+Without a session mechanism we can't control access to individual objects, but subclasses will want to, so this method is invoked as part of retrieving the foreground object (ie in $self->thing) and an AUTH_REQUIRED exception is thrown unless it returns true.
+
+=cut
+
+sub check_thing { 
+    my ($self, $thing) = @_;
+    return $self->check_type($thing->type);
 }
 
 =head3 ghost( )
@@ -407,8 +443,8 @@ sub ghost {
     };
     $initial_values->{id} = 'new';
     $initial_values->{type} = $self->type;
-    $initial_values->{person} = $self->session->person;
     $initial_values->{date} = $self->factory->now;
+    $initial_values->{person} = $self->session->person if $self->session;
 
  	return $self->factory->ghost_object($self->type, $initial_values);
 }
@@ -421,6 +457,7 @@ Get or set that, by default, returns the 'op' input parameter.
 
 sub op {
 	my $self = shift;
+	$self->debug(3, 'CDFH->op(' . join(',',@_) . ')');
     $self->set_param(op => $_[0]) if @_;
     return $self->param('op');
 }
@@ -440,6 +477,7 @@ will result in a call to something like Class::DBI::Factory::Handler->delete(), 
 sub do_op {
 	my $self = shift;
 	my $op = $self->op;
+    $self->debug(2, 'do_op: no op') unless $op;
 	return unless $op;
 	my $permitted = $self->permitted_ops;
     $self->debug(2, 'Checking permission to ' . $op);
@@ -471,6 +509,7 @@ This base class uses the Template Toolkit: override C<return_output> to use some
 
 sub return_output {
 	my $self = shift;
+	$self->debug(4, '*** return_output');
 	$self->process( $self->container_template, $self->assemble_output );
 }
 
@@ -492,6 +531,7 @@ The variables which will be available to templates are assembled here.
 
 sub assemble_output {
 	my $self = shift;
+	$self->debug(4, '* CDFH: assemble_output');
 	my $extra = $self->extra_output;
 	my $output = { 
 		handler => $self,
@@ -500,7 +540,8 @@ sub assemble_output {
 		session => $self->session || undef,
 		page_template => $self->page_template_path || undef,
 		thing => $self->thing || undef,
-		type => $self->type || undef,
+		view => $self->view || undef,
+		id => $self->id || undef,
 		list => $self->list || undef,
 		url => $self->url || undef,
 		qs => $self->qs || undef,
@@ -517,11 +558,13 @@ sub assemble_output {
 
 sub minimal_output {
 	my $self = shift;
-	my $output = { 
+	$self->debug(4, 'minimal_output)');
+    my $output = {
 		handler => $self,
 		factory => $self->factory,
 		config => $self->config,
 		input => { $self->all_param } || undef,
+	    url => $self->url,
     };
     return $output;
 
@@ -534,6 +577,8 @@ This is called by assemble_output, and the hashref it returns is appended to the
 =cut
 
 sub extra_output {
+	my $self = shift;
+	$self->debug(4, '* CDFH: extra_output');
 	return {};
 }
 
@@ -744,13 +789,6 @@ $handler->factory->retrieve_all('artist');
 
 returns the local factory object, or creates one if none exists yet.
 
-=cut
-
-sub factory {
-	my $self = shift;
-	return $self->factory_class->instance();
-}
-
 =head2 factory_class()
 
 returns the full name of the class that should be used to instantiate the factory. Defaults to Class:DBI::Factory, of course: if you subclass the factory class, you must mention the name of the subclass here.
@@ -758,7 +796,7 @@ returns the full name of the class that should be used to instantiate the factor
 =cut
 
 sub factory_class { "Class::DBI::Factory" }
-sub factory { return shift->factory_class->instance; }
+sub factory { return shift->factory_class->instance(); }
 
 =head2 request()
 
@@ -821,18 +859,16 @@ then the path_info will be /bar/kettle/black. Note that the opening / will cause
 
 sub path_info {
 	my $self = shift;
-	return $self->request->path_info();
+	my $pi = $self->request->path_info;
+	$self->debug(3, "path_info is $pi");
+	return $pi;
 }
 
 =head2 read_path_info()
 
-Returns a cleaned-up list of values in the path-info string, in the order they appear there. 
+Returns a cleaned-up list of values in the path-info string, in the order they appear there. If called in scalar mode, returns only the first value.
 
 It is assumed that values will be separated by a forward slash and that any file-type suffix can be ignored. This allows search-engine (and human) friendly urls.
-
-=head2 path_suffix()
-
-Returns the file-type suffix that was appended to the path info, if any. It's a useful place to put information about the format in which we should be returning data.
 
 =cut
 
@@ -841,8 +877,14 @@ sub read_path_info {
 	my $pi = $self->path_info;
     $pi =~ s/\.\w{2,4}$//i;
     my ($initialslash, @input) = split('/', $pi);
-    return @input;
+    return wantarray ? @input : $input[0];
 }
+
+=head2 path_suffix()
+
+Returns the file-type suffix that was appended to the path info, if any. It's a useful place to put information about the format in which we should be returning data.
+
+=cut
 
 sub path_suffix {
 	my $self = shift;
@@ -923,6 +965,7 @@ Erases all input by calling delete_param() for all input parameters.
 
 sub param {
 	my ($self, $p) = @_;
+	$self->debug(5, "param($p)");
 	return $self->request->param($p);
 }
 
@@ -967,13 +1010,13 @@ sub all_fat_param {
 
 sub set_param {
 	my $self = shift;
-	$self->debug(4, 'set_param(' . join(',',@_));
+	$self->debug(4, 'set_param(' . join(',',@_) . ')');
 	return $self->request->param(@_);
 }
 
 sub delete_param {
 	my $self = shift;
-	$self->debug(4, 'delete_param(' . join(',',@_));
+	$self->debug(4, 'delete_param(' . join(',',@_) . ')');
 	my $tab = $self->request->parms;
 	$tab->unset($_) for @_;
 }
@@ -1065,7 +1108,6 @@ sub send_header {
 	my $self = shift;
 	return if $self->{_header_sent};
 	$self->request->content_type($self->mime_type);
-    $self->request->status($self->return_code);
 	$self->request->no_cache(1) if $self->no_cache;	
 	$_->bake for @{ $self->{cookies_out} };
 	$self->request->send_http_header;
@@ -1074,12 +1116,6 @@ sub send_header {
 
 sub no_cache { 0 };
 sub default_mime_type { 'text/html' }
-
-sub return_code {
-	my $self = shift;
-    return $self->{_return_code} = $_[0] if @_;
-    return $self->{_return_code} || OK;
-}
 
 sub header_sent {
 	my $self = shift;

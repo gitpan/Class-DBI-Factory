@@ -100,6 +100,7 @@ sub new {
     my $prefix = delete $input->{prefix};
 	my %parameters =  map { $_ => ($input->{$_} || $class->default($_)) } grep { $content_class->find_column($_) } keys %$input;
 	my %constraints = map { $_ => ($input->{$_} || $class->default($_)) } keys %{ $class->default };
+	$constraints{step} = $class->config('max_list_step') if $constraints{step} > $class->config('max_list_step');
 	my $self = bless {
 		_parameters => \%parameters,
 		_constraints => \%constraints,
@@ -512,10 +513,15 @@ returns the local factory object, or creates one if none exists yet.
 
 returns the full name of the class that should be used to instantiate the factory. Defaults to Class:DBI::Factory, of course: if you subclass the factory class, you must mention the name of the subclass here.
 
+=head2 config()
+
+A useful shortcut that returns the Config object attached to our factory. Added here just to keep syntax consistent.
+
 =cut
 
 sub factory_class { "Class::DBI::Factory" }
 sub factory { return shift->factory_class->instance; }
+sub config { return shift->factory->config; }
 
 =head2 default()
 

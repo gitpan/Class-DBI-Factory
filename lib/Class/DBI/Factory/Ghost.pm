@@ -1,7 +1,7 @@
 package Class::DBI::Factory::Ghost;
 use strict;
 use vars qw( $VERSION $AUTOLOAD );
-$VERSION = '0.03';
+$VERSION = '0.04';
 
 =head1 NAME
 
@@ -11,10 +11,14 @@ Class::DBI::Factory::Ghost - a minimal data-container used as a precursor for Cl
 
 my $thing = Class::DBI::Factory::Ghost->new({
     id => 'new',
-    type => $moniker,
+    moniker => $moniker,
     person => $self->session->person,
     parent => $self->param('parent'),
 });
+
+# or
+
+my $thing = Class::DBI::Factory::Ghost->from( $other_thing );
 
 $thing->title($input->param('title'));
 
@@ -33,7 +37,7 @@ More elaborate Class::DBI constructions, such as set_sql prototypes and has_* me
 Constructs and returns a ghost object. Accepts a hashref of column => value pairs which must include a 'type' or 'moniker' value that corresponds to one of your data classes. Supplied values for other columns can be but don't have to be objects: they will be deflated in the usual way.
 
   my $temp = Class::DBI::Factory::Ghost->new({
-      type => 'cd',
+      moniker => 'cd',
       person => $session->person,
   });  
 
@@ -41,32 +45,80 @@ Constructs and returns a ghost object. Accepts a hashref of column => value pair
 
 sub new {
     my ($class, $data) = @_;
-    $data->{id} = 'new';
-    return unless $data->{type} && $class->factory->has_class($data->{type});
+    $data->{id} ||= 'new';
+    $data->{_moniker} = delete $data->{moniker} || delete $data->{type};
+    return unless $data->{_moniker} && $class->factory->has_class($data->{_moniker});
     return bless $data, $class;
+}
+
+=head2 from( $object )
+
+Constructs and returns a ghost copy of a real cdbi object. Useful if the object is about to be deleted or otherwise interfered with.
+
+  my $remnant = Class::DBI::Factory::Ghost->from( $foo );  
+  ...
+  my $bar = $remnant->make;
+  
+Calling C<make> on the ghost object should give you an object that is not identical to but exactly resembles the original template object. 
+
+But note that any cascading deletes or triggers associated with deletion will have been, er, triggered. 
+  
+=cut
+
+sub from {
+    my ($class, $source) = @_;
+    return unless $source && $source->isa('Class::DBI');
+    my %data = {};
+    my @cols = $source->columns('All');
+    @data{@cols} =  $source->_attrs( @cols );
+    $data{_moniker} = $source->moniker;
+    return bless \%data, $class;
 }
 
 =head2 is_ghost()
 
-Returns true, naturally. This isn't of much use unless you put a corresponding C<is_ghost> method in your Class::DBI base class and have it return false.
+Returns true. This becomes more useful if you put a corresponding C<is_ghost> method in your Class::DBI base class and have it return false. Templates may not be able to tell the difference, otherwise.
 
 =cut
 
 sub is_ghost { 1 }
 
+=head2 moniker()
+
+This is the key that determines the class a particular object is ghosting, and therefore the columns and relationships it should enter into. It must be set at construction time, so this method just returns the value stored then.
+
+Accessor only.
+
+=cut
+
+sub moniker {
+    return shift->{_moniker};
+}
+
 =head2 type()
 
-This is a key value that determines the class a particular object is ghosting, and therefore the columns and relationships it should enter into. It must be set at construction time, so this method just returns the value stored then.
+Old alias of C<moniker()>, dating back to before the moniker was introduced and so ripe for elimination.
 
 =cut
 
 sub type {
-    return shift->{type};
+    return shift->{_moniker};
+}
+
+=head2 class()
+
+Returns the Full::Class::Name of the class that we are ghosting.
+
+=cut
+
+sub class {
+    my $self = shift;
+    return $self->{_class} ||= $self->factory->class_name($self->moniker);
 }
 
 =head2 factory()
 
-As usual, calls CDF->instance to get the locally active factory object, whatever locally means in this case.
+As usual, calls CDF->instance to get the locally active factory object, for some local definition of local.
 
 =head2 factory_class()
 
@@ -79,7 +131,7 @@ sub factory { return shift->factory_class->instance; }
 
 =head2 AUTOLOAD()
 
-Very simple: nothing clever here at all. This provides as a get-and-set method for each of the columns defined by the class that this object is ghosting (ie it uses the type parameter to check method names). Nothing else.
+Very simple: nothing clever here at all. This provides as a get-and-set method for each of the columns defined by the class that this object is ghosting (ie it uses the moniker parameter to check method names). Nothing else.
 
 =cut
 
@@ -88,9 +140,20 @@ sub AUTOLOAD {
 	my $method_name = $AUTOLOAD;
 	$method_name =~ s/.*://;
     return if $method_name eq 'DESTROY';
+    my $class_methods = $self->class_methods;
+    return $self->class->$method_name(@_) if $class_methods->{$method_name};
     return unless $self->find_column($method_name);
     return $self->{$method_name} = shift if @_;
     return $self->{$method_name};
+}
+
+sub class_methods {
+    return {
+        class_title => 1,
+        class_plural => 1,
+        class_description => 1,
+        columns => 1,
+    }
 }
 
 =head2 find_column()
@@ -100,13 +163,13 @@ Exactly as with a normal Class::DBI class, except that it's a remote enquiry med
 =cut
 
 sub find_column {
-	my $self = shift;
-    return $self->factory->find_column($self->type, shift);
+	my ($self, $column) = @_;
+    return $self->factory->find_column($self->moniker, $column);
 }
 
 =head2 just_data()
 
-Returns only that part of the underlying hashref which is needed to create the real version of this object, ie having removed type, id and any extraneous values that have been set but are not columns of the eventual object.
+Returns only that part of the underlying hashref which is needed to create the real version of this object, ie having removed moniker, id and any extraneous values that have been set but are not columns of the eventual object.
 
 =cut
 
@@ -119,7 +182,7 @@ sub just_data {
 
 =head2 make()
 
-Attempts to produce a real object of the class specified by the type parameter supplied during construction, using the column values of the ghost object.
+Attempts to produce a real object of the class specified by the moniker parameter supplied during construction, using the column values of the ghost object.
 
 The created object is returned, but the ghost object remains the same, so it is possible to create several new cdbi objects from one ghost.
 
@@ -127,8 +190,6 @@ The created object is returned, but the ghost object remains the same, so it is 
     $ghost->address($_);
     $ghost->make;
   }
-
-But $ghost will no longer be a ghost, even so. C<make> returns nothing if the creation fails, and the $ghost object remains as it was.
 
 =head2 find_or_make()
 
@@ -138,12 +199,12 @@ Behaves exactly as C<make>, except that it calls C<find_or_create> instead of  C
 
 sub make {
 	my $self = shift;
-	return $self->factory->create($self->type, $self->just_data);
+	return $self->factory->create($self->moniker, $self->just_data);
 }
 
 sub find_or_make {
 	my $self = shift;
-    return $self->factory->foc($self->type, $self->just_data);
+    return $self->factory->foc($self->moniker, $self->just_data);
 }
 
 =head1 REQUIRES
@@ -164,7 +225,7 @@ William Ross, wross@cpan.org
 
 =head1 COPYRIGHT
 
-Copyright 2001-4 William Ross, spanner ltd.
+Copyright 2001-4 William Ross, spanner.
 
 This library is free software; you can redistribute it and/or modify it under the same terms as Perl itself.
 

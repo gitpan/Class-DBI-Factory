@@ -8,7 +8,7 @@ use Apache::Constants qw(:response);
 
 BEGIN {
     eval "use DBD::SQLite";
-    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 39);
+    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 43);
     use_ok('Class::DBI::Factory');
     use_ok('Class::DBI::Factory::Config');
     use_ok('Class::DBI::Factory::Handler');
@@ -33,8 +33,6 @@ isa_ok($factory->config, 'Class::DBI::Factory::Config', 'CDFC properly loaded:')
 isa_ok($factory->config->{_ac}, 'AppConfig', 'CDFC AppConfig:');
 is($factory->config->get('refresh_interval'), '3600', 'config values');
 is($factory->config->get('template_root'), '<undef>', 'config non-values');
-
-
 
 print "\nFACTORY\n\n";
 
@@ -151,6 +149,13 @@ ok ($ghost->find_column('title'), 'ghost finds correct columns');
 is ($ghost->title, 'testy', 'ghost holds column values');
 isa_ok ($ghost->make, 'Thing', 'ghost make() object');
 
+my $otherghost = $factory->ghost_from($thing);
+
+ok ($otherghost, 'ghost object created from real object');
+is ($otherghost->title, 'Wellington boot remover', 'title transcribed ok');
+is ($otherghost->moniker, 'thing', 'ghost moniker ok');
+is ($otherghost->class, 'Thing', 'ghost class ok');
+
 print "\nEXCEPTIONS\n\n";
 
 # Handler tests mostly relate to exceptions
@@ -173,7 +178,7 @@ otherwise {
 sub test_404 {
     throw Exception::NOT_FOUND(
         -text => "Just testing", 
-        -view=>'404',
+        -view =>'404',
     );
 }
 

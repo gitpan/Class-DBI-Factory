@@ -14,6 +14,18 @@ my $config = {};
 print termwrap("\nThis installer will attempt to create a working demonstration of Class::DBI::Factory, in the form of a (*very*) simple website.");
 print "\n";
 
+eval "require DBD::SQLite;";
+if ($@) {
+    print termwrap("\nBut first, please install DBD::SQLite and Class::DBI::SQLite.\n\n");
+    exit;
+}
+
+eval "require Class::DBI::SQLite;";
+if ($@) {
+    print termwrap("\nBut first, please install Class::DBI::SQLite.\n\n");
+    exit;
+}
+
 print termwrap("\n(Which won't do you much good unless you have a working apache/mod_perl installation through which to view it...)");
 print "\n";
 

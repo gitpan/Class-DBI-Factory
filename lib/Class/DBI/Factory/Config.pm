@@ -2,10 +2,11 @@ package Class::DBI::Factory::Config;
 
 use strict;
 use AppConfig qw(:argcount);
+use Data::Dumper;
 
 use vars qw( $VERSION $AUTOLOAD );
 
-$VERSION = '0.75';
+$VERSION = '0.86';
 
 =head1 NAME
 
@@ -83,7 +84,7 @@ sub skeleton {
 	my %defaults = $self->default_values;
 	$definitions{$_} = { ARGCOUNT => ARGCOUNT_LIST } for $self->list_parameters;
 	$definitions{$_} = { ARGCOUNT => ARGCOUNT_HASH } for $self->hash_parameters;
-	$definitions{$_}->{DEFAULT} = $defaults{$_} for keys %defaults;
+	$definitions{$_}->{ DEFAULT } = $defaults{$_} for keys %defaults;
 	return ($construction, %definitions);
 }
 
@@ -96,7 +97,9 @@ sub list_parameters {
 
 sub hash_parameters {
 	my $self = shift;
-	return $self->extra_hash_parameters;
+	my @param = $self->extra_hash_parameters;
+	push @param, qw(package_requires package_title package_short_title package_description package_page view_package class_package);
+	return @param;
 }
 
 sub default_values {
@@ -141,41 +144,138 @@ If you decide to replace this module with one of your own, all you have to do is
 
 Should optionally take a file path parameter and pass it to file(): otherwise, just creates an empty configuration object ready for use but not yet populated.
 
+=cut
+
+sub new {
+	my ($class, $param) = @_;
+	my $appconfig = AppConfig->new( $class->skeleton );
+	my $self = bless {
+		_ac => $appconfig,
+		_file_read => {},
+		_files => [],
+		_packages => [],
+	}, $class;
+	$self->file( delete($param->{file}) ) if $param->{file};
+	$self->set( %$param ) if %$param;
+	return $self;
+}
+
+=head2 load_packages()
+
+Attempts to load each of the packages specified in 'use_package' config parameters, if any. This requires that a 'package_dir' path has also been supplied, and optionally a 'package_file_suffix', though that will default to 'info' if not found. Note no dot needed, as with all suffix parameters here.
+
+=head2 packages()
+
+Returns a list of the packages successfully loaded.
+
+=head2 package_loaded()
+
+Returns true if the named package was successfully loaded at startup.
+
+=head2 classes()
+
+A shorthand for $config->get('class'): returns a list.
+
+=cut
+
+sub load_packages {
+	my $self = shift;
+    return unless $self->package_dir;
+    my @packages =  @{ $self->get('use_package') } if $self->get('use_package');
+    $self->_load_package($_) for @packages;
+}
+
+sub packages {
+	my $self = shift;
+	return @{ $self->{_packages} };
+}
+
+sub package_loaded {
+    my ($self, $package) = @_;
+    my %packages = map { $_ => 1 } $self->packages;
+    return $packages{$package};
+}
+
+=head2 _load_package()
+
+_load_package is mostly obvious: it works out the package file location and passes it to the AppConfig object's file() method for reading. 
+
+There is also some shuffling going on here to record the package in which certain key variables are declared. To do that we create a separate, temporary AppConfig object and from that pull a list of all the class and *_view parameters. This information, reversed, is stored in the class_package and view_package hash parameters of the main appconfig object, and used later to respond to queries from templates.
+
+in other words, if the package 'foo' defines a view:
+
+  permitted_view = bar
+
+Then we will also store the fact that it did so:
+
+  view_package bar = foo
+
+The order of events is such that the package file can override this assumption, by defining its own view_package pair:
+
+  permitted_view = bar
+  view_package bar = default
+  
+  class = My::Bar
+  class_package = default
+  
+At present the class_package information is only used to make interface decisions, so feel free to tinker with it.
+
+=cut
+
+sub _load_package {
+	my ($self, $package) = @_;
+	my $suffix = $self->package_file_suffix || 'info';
+	my $packagefile = $self->package_dir . "/${_}.${suffix}";
+	return unless -e $packagefile && -f $packagefile;
+
+	my $tempac = AppConfig->new( $self->skeleton );
+	$tempac->file($packagefile);
+	my $classes = $tempac->get('class');
+	my $views = $tempac->get('permitted_view');
+	my $aviews = $tempac->get('admin_view');
+	my $pviews = $tempac->get('public_view');
+	undef $tempac;
+	
+	$self->set(view_package => "$_ = $package") for (@$views, @$aviews, @$pviews);
+	$self->set(class_package => "$_ = $package") for (@$classes);
+	$self->file($packagefile);
+
+    push @{ $self->{_packages} }, $package;
+}
+
+=head2 class_package()
+
+  $config->class_package('My::Data::Class');
+
+returns the name of the package responsible for bringing this class into the application.
+
+=cut
+
+sub class_package {
+	my ($self, $class) = @_;
+    return $self->_ac->class_package->{$class};
+}
+
+=head2 view_package()
+
+  $config->view_package('discussions');
+
+returns the name of the package responsible for permitting this view.
+
+=cut
+
+sub view_package {
+	my ($self, $view) = @_;
+    return $self->_ac->view_package->{$view};
+}
+
 =head2 file()
 
   $config->file('/path/to/file', '/path/to/otherfile');
   
 Reads configuration files from the supplied addresses, and stores the addresses in case of a later refresh() or rebuild().
 
-=head2 refresh()
-
-  $config->refresh();
-  $config->refresh('/path/to/file');
-
-Checks the modification date for each of the configuration files that have been read, and any that have been modified are read again. 
-
-By default it will revisit the whole set of read configuration files, but if you supply a list of files, refresh() will confine itself to looking at the intersection of your list and the list of files already read. Use $config->file to read a new file, in other words: refresh only works on files that have already been read at least once.
-
-Note that you can't eliminate a variable this way (all you can do is make it untrue), and you can't remove an entry from a list or hash parameter: in that case you need to start again from scratch by calling redo().
-
-=head2 rebuild()
-
-This will drop all configuration information and start again by re-reading all the configuration files. Any other changes your application has made, eg by setting values directly, will be lost.
-
 =cut
-
-sub new {
-	my ($class, $param) = @_;
-	my $appconfig = AppConfig->new( $class->skeleton );
-	$appconfig->file( delete($param->{file}) ) if ($param->{file});
-	$appconfig->set( %$param ) if %$param;
-	my $self = bless {
-		_ac => $appconfig,
-		_file_read => {},
-		_files => [],
-	}, $class;
-	return $self;
-}
 
 sub file {
 	my ($self, @files) = @_;
@@ -183,29 +283,48 @@ sub file {
 	for (@files) {
 		push @{ $self->{_files} } , $_;
 		$self->{_file_read}->{$_} = scalar time;
-		$self->{_ac}->file($_) || next;
+		$self->_ac->file($_) || next;
 	}
 }
+
+=head2 refresh()
+
+  $config->refresh();
+  $config->refresh('/path/to/file');
+
+Checks the modification date for each of the configuration files that have been read: if any have changed since we read it, the whole configuration object is dropped and rebuilt. 
+
+By default it will revisit the whole set of read configuration files, but if you supply a list of files, refresh() will confine itself to looking at the intersection of your list and the list of files already read. Use $config->file to read a new file, in other words: refresh only works on files that have already been read at least once.
+
+Note that if a configuration file is missing at startup it will not be looked for later: this only refreshes the files already read.
+
+=head2 rebuild()
+
+This will drop all configuration information and start again by re-reading all the configuration files. Any other changes your application has made, eg by setting values directly, will be lost.
+
+=cut
 
 sub refresh {
 	my $self = shift;
 	my @files = @_ || $self->files;
+	my $changed = 0;
 	for (@files) {
-		next unless -e $_;
-		next unless -f $_;
+        next unless exists $self->{_file_read}->{$_};
+		unless (-e $_ && -f $_) { $changed++; next; }
 		my @stat = stat($_);
-		next unless $stat[9] > $self->{_file_read}->{$_};
-		warn "!!! re-parsing $_\n";
-		$self->file($_);
+		$changed++ if $stat[9] > $self->{_file_read}->{$_};
 	}
+	return unless $changed;
+    return $self->rebuild;
 }
 
 sub rebuild {
 	my $self = shift;
-	delete $self->{_ac};
-	$self->{_ac} = AppConfig->new( $self->skeleton );
-	$self->{_file_read}->{$_} = 0 for keys %{ $self->{_file_read} };
-	$self->refresh;
+	my @files = $self->files;
+    $self->{_files} = [];
+	$self->{_file_read} = {};
+	$self->_ac( AppConfig->new($self->skeleton) );
+	$self->file( @files );
 }
 
 sub files {
@@ -231,16 +350,21 @@ returns a simple list of all the variable names held.
 =cut
 
 sub get {
-	return shift->{_ac}->get(@_);
+	return shift->_ac->get(@_);
 }
 
 sub set {
-	return shift->{_ac}->set(@_);
+	return shift->_ac->set(@_);
 }
 
 sub all {
-	return shift->{_ac}->varlist;
+	return shift->_ac->varlist;
 }
+
+sub classes {
+	return shift->get('class');
+}
+
 
 =head2 template_path()
 
@@ -263,41 +387,22 @@ sub template_path {
     return \@path;
 }
 
-=head2 packages()
-
-A shorthand for $config->get('use_package'): returns a list. Note that this is the set of packages that are *supposed* to be loaded. Call using($name) to find out whether a particular package actually loaded properly.
-
-=head2 package_loaded()
-
-Returns true if the named package was successfully loaded at startup.
-
-=head2 classes()
-
-A shorthand for $config->get('class'): returns a list.
-
-=cut
-
-sub packages {
-	return shift->get('use_package');
-}
-
-sub package_loaded {
-    my ($self, $package) = @_;
-    my %packages = map { $_ => 1 } @{ $self->get('package') };
-    return $packages{$package};
-}
-
-sub classes {
-	return shift->get('class');
-}
-
 sub AUTOLOAD {
 	my $self = shift;
+	my $key = shift;
 	my $method_name = $AUTOLOAD;
 	$method_name =~ s/.*://;
     return if $method_name eq 'DESTROY';
-    return unless $self->{_ac};
-	return $self->{_ac}->$method_name(@_);
+    return unless $self->_ac;
+    my %hashed = map { $_=> 1} $self->hash_parameters;
+    return $self->_ac->$method_name()->{ $key } if $key && $hashed{$method_name}; 
+	return $self->_ac->$method_name();
+}
+
+sub _ac {
+    my $self = shift;
+    return $self->{_ac} = $_[0] if @_;
+    return $self->{_ac};
 }
 
 =head1 SEE ALSO

@@ -16,6 +16,7 @@ lib/Class/DBI/Factory/Handler.pm
 lib/Class/DBI/Factory/List.pm
 lib/Class/DBI/Factory/Exception.pm
 lib/Class/DBI/Factory/Ghost.pm
+lib/Class/DBI/Factory/Howto.pm
 
 cdfdemo/README
 cdfdemo/install.pl
@@ -28,6 +29,7 @@ cdfdemo/lib/My/Artist.pm
 cdfdemo/lib/My/Genre.pm
 cdfdemo/lib/My/Handler.pm
 cdfdemo/lib/My/Track.pm
+cdfdemo/public_html/index.shtml
 cdfdemo/public_html/stylesheets/demo.css
 cdfdemo/scripts/startup.pl
 cdfdemo/templates/_error.html

@@ -1,6 +1,18 @@
 Revision history for Perl extension Class::DBI::Factory.
 
-0.80
+0.86
+    - Package-handling greatly improved.
+    - Documentation updated to explain about problems with live_object 
+      index and database shuffling
+    - boosterism moved to separate Readme.pm to simplify documentation.
+    - ghosts made more useful, flexible
+    - 
+
+0.85
+    - Various small fixes and tweaks over the last four point releases,
+      mostly to exception-handling and list-building.
+
+0.81
     - Silly MANIFEST error corrected.
 
 0.80

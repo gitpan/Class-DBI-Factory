@@ -6,14 +6,15 @@ use Ima::DBI;
 use Email::Send;
 use Data::Dumper;
 
-use vars qw( $VERSION $AUTOLOAD $_factories );
+use vars qw( $VERSION $AUTOLOAD $_factories $class_debug_level );
 
-$VERSION = '0.81';
+$VERSION = '0.86';
 $_factories = {};
+$class_debug_level = 0;
 
 =head1 NAME
 
-Class::DBI::Factory - a factory interface to a set of Class::DBI classes
+Class::DBI::Factory - offers factory interface to a set of Class::DBI classes
 
 =head1 SYNOPSIS
 
@@ -55,67 +56,11 @@ Class::DBI::Factory - a factory interface to a set of Class::DBI classes
 
 =head1 INTRODUCTION
 
-A Class::DBI::Factory object provides a single point of access to a set of Class::DBI classes. You can use it as a quick and tidy way to access class methods or as a full framework for a mod_perl-based web application.
+Class::DBI::Factory can be used as a quick, clean way to hold a few cdbi classes together and access their class methods, or as a full framework for mod_perl-based web applications. It comes with five little helpers that provide configuration, list-paging, exception-handling, pre-objects and a handler base class, but you can ignore all that unless you need to use it.
 
-For anyone unfamiliar with the pattern, a Factory* is basically just a versatile constructor: its role is to build and return objects of a variety of classes in response to a variety of requests. This pattern is commonly used as a way of hiding complex or evolving sets of classes behind a single consistent interface, and if your Class::DBI applications are anything like as sprawling as mine, that will immediately sound like a good idea.
+There used to be several pages of cheerful explanation here: that has all been dumped into L<Class::DBI::Factory::Howto>, where it awaits transformation into a useful cookbook. What remains is a much shorter but still reasonably comprehensive overview:
 
-I<* Strictly speaking this is probably an Abstract Factory, since a lot of Class::DBI classes are themselves factory-like, but I'm not going to pretend I really know what the difference is.>
-
-In a Class::DBI context this approach has four immediate benefits:
-
-=over
- 
-=item *
-It defines and holds together a set of Class::DBI data classes
- 
-=item *
-It provides an easy interface to cdbi class methods
-
-=item *
-It offers an easy central repository for expensive objects
-
-=item *
-It makes data class re-use much easier in a persistent environment
-
-=back
-
-The Factory is most likely to be employed as the hub of a Class::DBI-based web application, supplying objects, information and services to handlers, templates and back-end processes as required, so it includes a few key services that make Class::DBI much easier to use under mod_perl (see L</"PERSISTENCE"> below), and comes with three helpful base classes designed with that role in mind:
-
-=head2 Class::DBI::Factory::List
-
-is a general-purpose list handler that can transparently execute and paginate queries with select, order and limit clauses. If it works with anything but mysql at the moment then that's an accident, but I fondly imagine that it will become as platform-independent as Class::DBI, at least.
-
-=head2 Class::DBI::Factory::Config
-
-uses AppConfig to provide moderately complex configuration services with minimal effort. There is provision for a package-based pseudo-plugin architecture.
-
-=head2 Class::DBI::Factory::Handler
-
-provides a ready-made mod_perl handler. If you're happy to use the Template Toolkit then you should find it works in a limited way out of the box: a very small amount of subclassing is required to work with other templating systems.
-
-You should be able to use any templating engine and any database, and to move freely among platforms, but I must confess that I have only ever used CDF with the Template Toolkit, mysql and SQLite. There may well be incompatibilities that I'm unaware of.
-
-All of these modules are written with the expectation that they will be subclassed rather than used directly (see L</"SUBCLASSING">, below), so there is a proliferation of little methods and a B<lot> of method pod.
-
-=head1 PERSISTENCE
-
-In a persistent environment like mod_perl, you wouldn't want to build a bulky, expensive factory object for every request. CDF factories are designed to remain in memory, furnishing short-lived request handlers and data objects with whatever objects and lists they need. 
-
-The instance mechanism allows for several factories to coexist. Under mod_perl it would be normal to have a persistent factory for each each instance of your application (usually that would mean for each site). All you have to do is call CDF->instance() instead of CDF->new().
-
-  CDF->instance($site_id);
-  
-will always return the right factory object for each C<$site_id>, constructing it if necessary. The C<$site_id> can also be supplied as an environment variable, given to the constructor or just left to the constructor to work out. If no id can be found, then C<instance> will revert to a singleton constructor and return the same factory to every request.
-
-This persistence between requests makes the factory an excellent place to store expensive objects, especially if they must be built separately for each of your sites. As standard each factory object is ready to create and hold a single database handle and a single Template object, both of which are constructed with parameters from the factory's configuration files and made available to handlers and data classes.
-
-With a small tweak to your data classes, this will also allow you to run several instances of the same application side by side, each instance using a different database and configuration files, and sharing templates or not as you dictate. All you have to do is override C<db_Main> with a method that retrieves the factory's database handle instead of the class handle. See L</"YOUR DATA CLASSES"> below for details.
-
-Note that this object-sharing does not extend between Apache children, or any other processes. In the typical setup there is actually one factory object per site B<per process>.
-
-=head1 MINIMAL EXAMPLE
-
-As a starting point it is quite possible to use Class::DBI::Factory just as it comes. If you have the template toolkit installed, then this bit of configuration is all that's required to make your cd collection browseable:
+It is possible to use Class::DBI::Factory by itself and without subclassing, especially if you're happy to use the template toolkit. Class::DBI's canonical CD library can be web-enabled with just this little bit of configuration and three page templates:
 
 in your (virtual)host definition:
   
@@ -133,11 +78,8 @@ And in /path/to/files/cdf.conf
   db_name = something
   db_username = someone
   db_password = something
-  db_host = localhost
-  db_port = 3306
   
-  template_path = /path/to/dir
-  module_path = /path/to/dir
+  template_path = /path/to/templates
   template_suffix = 'html'
   
   class = My::CD
@@ -145,13 +87,25 @@ And in /path/to/files/cdf.conf
   class = My::Album
   class = My::Genre
 
-Though you would also need three templates in the directory you have put in template_path: one.html, many.html and front.html.
+There's a sample application included with this distribution. It isn't big or clever, but it shows the basic principles at work and you might even be able to use it as a starting point. It uses SQLite and TT, and should be very easy to set up provided you have a mod_perl-enabled Apache around. It's in C<./demo> and comes with a dim but enthusiastic installer and some B<very> basic documentation.
 
-There's a sample application included with this distribution. It isn't big or clever, but it shows the basic principles at work and you might even want to use it as a starting point. It uses SQLite and TT, and should be very easy to set up provided you have a mod_perl-enabled Apache around. It's in C<./demo> and comes with a dim but enthusiastic installer and some B<very> basic documentation.
+=head1 KNOWN ISSUES
+
+=over
+
+=item This version of CDF is unlikely to work with any combination other than Class::DBI 0.96 and Ima::DBI 0.33.
+
+=item CDF under mod_perl is not compatible with the unique-object-cache introduced in Class::DBI v0.96, and cannot be made so since the cache is held as class data and assumes that an object of a class with a certain id is always the same object. The next version of CDBI will fix this: there are plans to introduce a more structured object cache, and/or to make it possible to subclass some of its storage and retrieval mechanisms. It is possible to get around this by patching Class::DBI, but much easier to avoid it altogether by adding this line to your mod_perl startup.pl:
+
+  $Class::DBI::Weaken_Is_Available = 0;	#disables unique-object stash
+
+=item Class::DBI and Apache::DBI are not entirely compatible. This is because Ima::DBI has its own caching mechanism for database handles. It's not a serious problem unless you're using database transactions, in which case some necessary cleaning up doesn't happen, but it's easily avoided just by omitting Apache::DBI from your setup.
+
+=back
 
 =head1 SUBCLASSING
 
-In serious use, Class::DBI::Factory and all its helper modules will be subclassed and extended. The methods you will want to look at first are probably:
+In serious use, Class::DBI::Factory and all its helper modules expect to be subclassed and extended. The methods you will want to look at first are probably:
 
   CDF::Handler::build_page()
   CDF::Handler::factory_class()
@@ -167,34 +121,7 @@ In serious use, Class::DBI::Factory and all its helper modules will be subclasse
   CDF::Config::hash_parameters()
   CDF::Config::default_values()
 
-All of which have been separated out and surrounded with ancillary methods in order to facilitate selective replacement of components. See the method descriptions below, and in the helper modules, for more detail.
-
-=head1 YOUR DATA CLASSES
-
-You will, before very long, want to make the factory available to your data classes, which in turn gives them access to your templating engine, configuration settings and factory utilities.
-
-In a non-persistent application, where you don't have to worry about namespaces too much, you can just store the factory object in a class variable or temp column. The simplest way is to create a get&set method in your subclass of Class::DBI, then override the C<CDF::post_require()> method with something like this:
-
-  sub post_require {
-    my ($moniker, $class) = @_;
-    $class->factory($self);
-  }
-
-However, this isn't really recommended because it won't work in a persistent environment: holding the factory as class data means it is shared between all running instances of the application (within the same process). If you want to publish two sites from different databases, and with different templates, then you need to hold a separate factory object for each site.
-
-CDF's persistence mechanism provides a simple solution. All you need to add to your data classes is this:
-
-  sub factory { return Class::DBI::Factory->instance; }	
-  sub db_Main { return shift->factory->dbh(@_) }
-
-(Except that the factory method is more likely to call Your::Subclass::Of::CDF)
-
-and optionally:
-
-  sub config { return shift->factory->config(@_) }
-  sub tt { return shift->factory->tt(@_) }
-
-The C<db_Main> method is essential: it overrides the standard L<Class::DBI>/L<Ima::DBI> handle storage mechanism with a factory one that doesn't assume that a class will always want to access the same database table. 
+All of which have been separated out and surrounded with ancillary methods in order to facilitate selective replacement. See the method descriptions below, and in the helper modules, which will go on about it in exhausting detail.
 
 =head1 CONFIGURATION
 
@@ -313,7 +240,8 @@ If no site id is available from any source then a singleton factory object will 
 sub instance {
     my $class = shift;
 	my $tag = shift || $class->site_id || $ENV{SITE_NAME} || '__singleton';
-	$class->debug(4, "CDF->instance($tag);");
+    my ($package, $filename, $line) = caller;
+	$class->debug(5, "CDF->instance($tag) called from $package line $line");
 	return $_factories->{$tag}->refresh_config() if $_factories->{$tag};
 	
 	$class->debug(1, "Creating new CDF instance for '$tag'");
@@ -342,9 +270,7 @@ sub new {
 
 =head2 build_config()
 
-This is part of the constructor, but separated out to facilitate subclassing. It loads the configuration class and reads all the configuration files it can find into a single configuration object, which it returns to the constructor. It will try to use any parameters as file addresses, or call C<site_config_file> and C<global_config_file> if none are found. 
-
-Any configuration file can also specify more files to be read, either by an include_file = line or a package = line (provided that a package_dir has also been specified at some point). See the included sample application for an annotated configuration file. Currently this only iterates once: included files may not themselves include other files.
+Loads the configuration class and reads all the configuration files it can find into a single configuration object, which it returns (presumably to the constructor).
 
   my $config = Class::DBI::Factory->build_config(
     $global_config_file, 
@@ -352,11 +278,11 @@ Any configuration file can also specify more files to be read, either by an incl
     $site_config_file 
   );
 
-Note that there is no real difference between the three configuration files, except the fact that they are read in a particular order.
+Note that there is no real difference between the three configuration files, except the fact that they are read in a particular order. The config object will try to work out the addresses of files if they are not given.
 
 =head2 refresh_config()
 
-Re-reads any configuration files that have been modified since they were read. This is accomplished just by calling C<$config-E<gt>refresh()>, so bear it in mind if you are doing anything clever with the configuration class.
+Rebuilds the configuration object if any configuration files have been modified since they were read. This is accomplished just by calling C<$config-E<gt>refresh()>, so bear it in mind if you are doing anything clever with the configuration class.
 
 If a refresh_interval parameter has been defined anywhere in the configuration files, this method will check first that the necessary amount of time has passed, and then that none of the configuration files have been updated in that period. Any that have will be read again. The order of reading is preserved.
 
@@ -376,16 +302,17 @@ sub build_config {
 	
 	my $config = $class->config_class->new;
 	$global_config_file ||= $class->global_config_file;
-	$config->file($global_config_file) if $global_config_file;
-
 	$site_package_file ||= $class->site_package_file;
-	$config->file($site_package_file) if $site_package_file;
-	$config->file( $config->package_dir . "/${_}.info") for @{ $config->packages };
-
 	$site_config_file ||= $class->site_config_file;
+
+	$config->file($global_config_file) if $global_config_file;
+	$config->file($site_package_file) if $site_package_file;
+	$config->load_packages;
 	$config->file($site_config_file) if $site_config_file;
 	$config->file( $_ ) for @{ $config->include_file };
-
+	
+#	warn Dumper( $config );
+	
 	return $config;
 }
 
@@ -503,6 +430,37 @@ sub assimilate_class {
 
 sub pre_require { return }
 sub post_require { return }
+
+=head2 package_providing()
+
+  $factory->package_providing($view);
+  $factory->package_providing($moniker);
+  $factory->package_providing($view || $moniker );
+  [% package = factory.package_providing(view || moniker) %]
+  
+Tries to find out which package provided the view or moniker supplied. Returns the package name.
+
+=cut
+
+sub package_providing {
+    my ($self, $thing) = @_;
+	$self->debug(3, "package_defining( $thing )");
+    return $self->_class_package($thing) || $self->_view_package($thing);
+}
+
+sub _class_package {
+	my ($self, $moniker) = @_;
+	$self->debug(3, "_class_package( $moniker )");
+    my $class = $self->class_name($moniker) || return;
+    return $self->config->class_package($class);
+}
+
+sub _view_package {
+	my ($self, $view) = @_;
+	$self->debug(3, "_view_package( $view )");
+    return $self->config->view_package($view);
+}
+
 
 =head1 CLASS RELATIONS
 
@@ -681,16 +639,17 @@ sub ghost_object {
 
 =head2 ghost_from( data_object )
 
-Returns a ghost object based on the class and properties of the supplied real object. Useful to keep a record of an object about to be deleted, for example.
+Returns a ghost object based on the class and properties of the supplied real object. 
+Useful to keep a record of an object about to be deleted, for example. 
+
+(In which case the deleted object can be reconsituted with a call to C<$ghost-\>make>.)
 
 =cut
 
 sub ghost_from {
     my ($self, $thing) = @_;
-    return $self->ghost_object($thing->type, { 
-        map { $_ => $thing->$_() } $thing->columns('All')
-    });
-    
+    $self->_require_class( $self->ghost_class );
+    return $self->ghost_class->from($thing);
 }
 
 =head2 title() plural() description()
@@ -781,14 +740,17 @@ sub dsn {
 }
 
 sub dbh {
-    return &{ shift->_dbc };
+    my $self = shift;
+    my $dbh = &{ $self->_dbc };
+    $self->debug(0, 'No database handle returned. Please check database account.') unless $dbh;
+    return $dbh;
 }
 
 =head2 _dbc()
 
-taps into the terrible innards of Ima::DBI to retrieve a closure that returns a database handle of the right kind for use here, but instead of being incorprated as a method, the closure is stored in the factory object's hashref.
+Taps into the terrible innards of Ima::DBI to retrieve a closure that returns a database handle of the right kind for use here, but instead of being incorprated as a method, the closure is stored in the factory object's hashref.
 
-(All C<dbh> now does is to put a C<%{ }> round a call to $self->{_dbc}.)
+(All C<dbh> really does is to execute the closure held in $self->{_dbc}.)
 
 This depends on close tracking of internal features of Ima::DBI and Class::DBI, since there is no easy way to make use of the handle-creation defaults from the outside. It will no doubt have to change with each update to cdbi.
 
@@ -821,7 +783,7 @@ sub _dbc {
 
 =head2 tt()
 
-Like the database handle, each factory object can hold and make available a single Template object. This is almost always called by handlers during the return of a page, but you sometimes find that the data classes themselves need to make use of a template, eg. to publish a page or send an email. If you don't intend to use the Template Toolkit, you can override or just ignore this method: the Toolkit is not loaded unless the method is called.
+Like the database handle, each factory object can hold and make available a single Template object. This is almost always called by handlers during the return of a page, but you sometimes find that the data classes themselves need to make use of a template, eg. to publish a page or send an email. If you don't intend to use the Template Toolkit, you can override C<process> or just ignore all this: the Toolkit is not loaded until C<tt> is called.
 
 Template paths can be supplied in two ways: as simple template_dir parameters, or by supplying a single template_root and several template_subdir parameters. The two can be combined: See L<Class::DBI::Factory::Config> for details.
 
@@ -853,7 +815,7 @@ sub tt {
 
 Uses the local Template object to display the output data you provide in the template you specify and store the resulting text in the scalar (or request object) you supply (or to STDOUT if you don't). If you're using a templating system other than TT, this should be the only method you need to override.
 
-Note that C<process> returns Apache's OK on success and SERVER_ERROR on failure, and OK is zero. It means you can close a method handler with C<return $self->process(...)> but can't say C<$self->process(...) || $self->fail>.
+Note that C<process> returns Apache's OK on success and SERVER_ERROR on failure, and OK is zero. It means you can close a method handler with C<return $self->process(...)> but can't say C<$self-<gt>process(...) or ... >
 
 This is separated out here so that all data classes and handlers can use the same method for template-parsing. It should be easy to replace it with some other templating system, or amend it with whatever strange template hacks you like to apply before returning pages.
 
@@ -861,7 +823,7 @@ This is separated out here so that all data classes and handlers can use the sam
 
 sub process {
 	my ($self, $template, $data, $outcome) = @_;
-	$self->debug(3, "processing template '$template'.");
+	$self->debug(3, "CDF: processing template '$template'.");
 	return 0 if $self->tt->process($template, $data, $outcome);
   	throw Exception::SERVER_ERROR(-text => $self->tt->error);
     return 1;
@@ -929,6 +891,25 @@ sub list_from {
   	throw Exception::GLITCH(-text => "Class::DBI::Factory->list_from: no iterator supplied. Cannot build list.") unless $iterator;
     $self->_require_class( $self->list_class );
 	return $self->list_class->from( $iterator, $source, $param );
+}
+
+=head2 iterator_from( class, listref )
+
+Returns an iterator built around the list of supplied ids. A list of objects can also be used instead: it's not very efficient, but sometimes it's necessary.
+
+=head2 iterator_class()
+
+Should return the Full::Class::Name that will be used to construct an iterator. Defaults to L<Class::DBI::Iterator>.
+
+=cut
+
+sub iterator_class { 'Class::DBI::Iterator' }
+
+sub iterator_from {
+    my ($self, $class, $list) = @_;
+    return unless $class && $list;
+	$class->debug(3, "building iterator from list of " . scalar(@$list) . " items of class $class");
+    return $self->iterator_class->new($class, $list);
 }
 
 =head2 reify()
@@ -1038,19 +1019,21 @@ adds more detail, and...
 
 sub debug {
     my ($self, $level, @messages) = @_;
-    return unless ref $self && @messages;
+    return unless @messages;
     my $threshold = $self->debug_level || 0;
+    my $id = (ref $self) ? $self->id : '*';
     return if $level > $threshold;
-    my $tag = "[" . $self->id . "]";
+    my $tag = "[$id]";
     warn map { "$tag $_\n" } @messages;
     return @messages;
 }
 
 sub debug_level {
     my $self = shift;
+    return $class_debug_level unless ref $self;
     return $self->{_debug_level} = $_[0] if @_;
     return $self->{_debug_level} if $self->{_debug_level};
-    return $self->{_debug_level} = $self->config->get('debug_level');
+    return $self->{_debug_level} = $self->config->get('debug_level') || $class_debug_level;
 }
 
 =head2 email_message( parameter_hashref )
@@ -1068,32 +1051,39 @@ If you're having trouble with this, check your configuration's 'default_mailer' 
 sub email_message {
 	my ( $self, $instructions ) = @_;
 	
-	$self->debug(5, 'sending email message with: ' . Dumper($instructions));
+#	$self->debug(4, 'sending email message with: ' . Dumper($instructions));
 	
 	return unless $instructions->{subject} && $instructions->{to};
     $instructions->{from} ||= $self->config->get('mail_from');
 	my $mailer = $self->config->get('default_mailer') || 'Sendmail';
+    my $smtphost = $self->config->get('smtp_relay') if $mailer eq 'SMTP'; 
 
 	if ($instructions->{template}) {
 	    my $ctype = 'text/html; charset="iso-8859-1"' if $instructions->{as_html};
+	    $ctype ||= 'text/plain';
 	    my $message;
         $self->process( $instructions->{template}, {
+            content_type => $ctype,
             factory => $self,
             config => $self->config,
             date => $self->now,
     		%$instructions,
         }, \$message );
-        send $mailer => $message;
+        
+        $self->debug(4, "passing this message to Email::Send: $message");
+        send $mailer => $message, $smtphost;
 
 	} else {
-        
-        send $mailer => <<"__ENDS__";
+        my $message = <<"__ENDS__";
 To: $$instructions{to}
 From: $$instructions{from}
 Subject: $$instructions{subject}
 
 $$instructions{message}
 __ENDS__
+
+        $self->debug(4, "sending message: \n$message");
+        send $mailer => $message, $smtphost;
     }
 }
 
