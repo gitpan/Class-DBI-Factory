@@ -1,15 +1,14 @@
-Class::DBI::Factory v0.8
+Class::DBI::Factory v0.99
 
-In addition to the prerequisites recorded in the makefile, the tests for this module
-use DBD::SQLite and will skip if it's not installed.
+The version of CDF::Handler included here is the first to require mod_perl2. To work with mod_perl1 you need v0.86.
 
-The enclosed demo application - in ./cdfdemo - also requires DBD::SQLite, and its 
-installer uses Term::Prompt and File::NCopy.
+See the POD in Class::DBI::Factory.pm and the other modules for proper documentation.
 
-Please send comments (about this inconvenience or anything else) to wross@cpan.org.
+Read cdfdemo/README and the run cdfdemo/install.pl to set up a simple demo application and see how the handlers, factories and data classes fit together.
 
-Hope this is useful.
+For mailing list support, have a look at www.spanner.org/cdf. It doesn't exist at the moment but might by the time you read this :)
 
-will
+If anything is unclear, you have any suggestions or you just want to explain how wrong-headed this is, please write to wrross@cpan.org. For proper bugs in Class::DBI::Factory and its helpers, please use http://rt.cpan.org.
 
-16.8.04
+William Ross
+19 February 2005

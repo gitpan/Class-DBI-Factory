@@ -16,13 +16,12 @@ lib/Class/DBI/Factory/Handler.pm
 lib/Class/DBI/Factory/List.pm
 lib/Class/DBI/Factory/Exception.pm
 lib/Class/DBI/Factory/Ghost.pm
-lib/Class/DBI/Factory/Howto.pm
+lib/Class/DBI/Factory/Mailer.pm
 
 cdfdemo/README
 cdfdemo/install.pl
 cdfdemo/conf/cdf.conf
 cdfdemo/conf/site.conf
-cdfdemo/data/cdfdemo.db
 cdfdemo/lib/My/DBI.pm
 cdfdemo/lib/My/Album.pm
 cdfdemo/lib/My/Artist.pm
@@ -34,22 +33,16 @@ cdfdemo/public_html/stylesheets/demo.css
 cdfdemo/scripts/startup.pl
 cdfdemo/templates/_error.html
 cdfdemo/templates/_holder.html
-cdfdemo/templates/edit.html
-cdfdemo/templates/edit/album.html
-cdfdemo/templates/edit/artist.html
-cdfdemo/templates/edit/choose.html
-cdfdemo/templates/edit/genre.html
-cdfdemo/templates/edit/track.html
 cdfdemo/templates/front.html
+cdfdemo/templates/furniture/add.html
+cdfdemo/templates/furniture/choose.html
+cdfdemo/templates/furniture/display.html
+cdfdemo/templates/furniture/edit.html
 cdfdemo/templates/furniture/foot.html
 cdfdemo/templates/furniture/head.html
 cdfdemo/templates/furniture/pagination.html
 cdfdemo/templates/furniture/status.html
 cdfdemo/templates/many.html
 cdfdemo/templates/one.html
-cdfdemo/templates/types/album.html
-cdfdemo/templates/types/artist.html
-cdfdemo/templates/types/genre.html
-cdfdemo/templates/types/track.html
 
 META.yml

@@ -7,22 +7,23 @@ use IO::File;
 use File::Path;
 use File::NCopy;
 use Template;
+use Text::CSV::Simple;
 
 $|++;
 my $config = {};
 
-print termwrap("\nThis installer will attempt to create a working demonstration of Class::DBI::Factory, in the form of a (*very*) simple website.");
+print termwrap("\nThis installer will attempt to create a working demonstration of Class::DBI::Factory, in the form of a *very* simple website.");
 print "\n";
 
-eval "require DBD::SQLite;";
+eval "require DBD::SQLite2;";
 if ($@) {
-    print termwrap("\nBut first, please install DBD::SQLite and Class::DBI::SQLite.\n\n");
+    print termwrap("\nBut first, please install DBD::SQLite2...\n\n");
     exit;
 }
 
-eval "require Class::DBI::SQLite;";
+eval "require Text::CSV::Simple;";
 if ($@) {
-    print termwrap("\nBut first, please install Class::DBI::SQLite.\n\n");
+    print termwrap("\nBut first, please install Text::CSV::Simple.\n\n");
     exit;
 }
 
@@ -53,7 +54,6 @@ if ( -e $path) {
     die ("create_path failed for '$path': $@") if $@;
 }	
 
-dcopy("./data", $path);
 dcopy("./templates", $path);
 dcopy("./lib", $path);
 dcopy("./public_html", $path);
@@ -77,6 +77,19 @@ for ('conf/cdf.conf', 'conf/site.conf', 'scripts/startup.pl') {
     $tt->process($_, $parameters, \$output);
     write_file("$path/$_", $output);
 }
+
+print "* creating directory $path/data\n";
+mkdir "$path/data" || die $!;
+
+print "*** creating sample database\n";
+
+my $dbfile = "$path/data/cdfdemo.sdb";
+
+print termwrap("\nThe SQLite data file will be at $dbfile. For updates and inserts to work, both this file and the directory that contains it must be writable by your apache user (which is probably 'nobody').\n");
+print termwrap("\nThis is a SQLite 2 data file: if we use v3, we get loads of spurious warnings from DBIx::ContextualFetch, which is part of Class::DBI. So you can't get at this data with SQLite3.\n");
+print termwrap("\nPS. Sorry about the silly sample data.\n");
+
+create_database($dbfile);
 
 print "*** installation complete\n";
 
@@ -108,6 +121,52 @@ sub write_file {
 	print "* file written: $path\n";
 }
 
+sub create_database {
+    my $dbfile = shift;
+    my $dsn = "dbi:SQLite2:dbname=$dbfile";
+	my $dbh;
+    die "Can't do that: there's already a data file there!" if -e $dbfile;
 
+	eval { $dbh = DBI->connect($dsn,"",""); };
+    die "connecting to (and creating) SQLite2 database '$dbfile' failed: $!" if $@;
 
-
+	$dbh->do('create table tracks (
+		id integer primary key,
+		album integer,
+		duration integer,
+		position integer,
+		miserableness integer,
+		title varchar(255),
+		description text);
+	');
+	
+	$dbh->do('create table albums (
+		id integer primary key,
+		artist integer,
+		genre integer,
+		title varchar(255),
+		description text);
+	');
+	
+	$dbh->do('create table artists (
+		id integer primary key,
+		title varchar(255),
+		description text);
+	');
+	
+	$dbh->do('create table genres (
+		id integer primary key,
+		title varchar(255),
+		description text);
+	');
+	
+	for ('genres', 'artists', 'albums', 'tracks' ) {
+        my $parser = Text::CSV::Simple->new;
+        my @data = $parser->read_file("data/${_}.csv");
+        my $cols = shift @data;
+        my $statement = "INSERT INTO $_ (" . join(',', @$cols) . ") VALUES (" . join(',', (map { '?' } @$cols)) . ");";
+        my $sth = $dbh->prepare($statement);
+        $sth->execute( @$_ ) for @data;
+    }    
+}
+        

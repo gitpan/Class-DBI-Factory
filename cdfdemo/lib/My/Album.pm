@@ -11,6 +11,7 @@ My::Album->has_a( artist => 'My::Artist' );
 My::Album->has_a( genre => 'My::Genre' );
 My::Album->has_many( tracks => 'My::Track', {order_by => 'position'} );
 
+sub moniker { 'album' }
 sub class_title { 'Album' }
 sub class_plural { 'Albums' }
 sub class_description { 'The album class.' }

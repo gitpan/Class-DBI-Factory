@@ -1,4 +1,22 @@
-[% PROCESS furniture/head.html title=thing.title %]
+[% SET factory = handler.factory %]
+[% SET session = handler.session %]
+[% SET config = factory.config %]
+
+[% SET url = handler.url %]
+[% SET qs = handler.qs %]
+[% SET path_info = handler.path_info %]
+
+[% SET title = thing.title || list.title %]
+
+[% PROCESS furniture/head.html %]
+
+[% IF thing %]
+	[% page_template = 'one.html' %]
+[% ELSIF list %]
+	[% page_template = 'many.html' %]
+[% ELSE %]
+	[% page_template = 'front.html' %]
+[% END %]
 
 [% PROCESS $page_template %]
 

@@ -1,20 +1,21 @@
 Hello.
 
-This is a very basic demonstration of Class::DBI::Factory. It is quite a lot more complicated than its rather limited goals require, the better to suggest how one might build a more complex application with CDF.
+This is a very basic demonstration of Class::DBI::Factory. It is a bit more complicated than its rather limited goals require, the better to suggest how one might build a more complex application with CDF.
 
 The demo requires that you have installed:
     Class::DBI::Factory
     Template Toolkit
-    DBD::SQLite
-    Class::DBI::SQLite 
+    DBD::SQLite2
+    mod_perl2
+    libapreq2
 
-Note that the two SQLite modules are not required by CDF (except DBD::SQLite for tests) and so may need to be installed separately before the demo will work.
+DBD::SQLite2 is not required by CDF, except for tests, and the mod_perl2 packages are not required at all unless you're doing this kind of thing. They may need to be installed separately before the demo will work.
 
 and for the installer, if you use it:
     Term::Prompt
     File::NCopy
 
-And about 100 other modules which are required by this lot. CPAN will sort it out for you.
+And about 100 other modules which are required by this lot. CPAN.pm will sort it out for you.
 
 To install the demo somewhere, just run ./install.pl. That script will copy files to the directory you specify and fill in a couple of other values in the configuration files: you could very easily accomplish the same thing by hand if you prefer. If you do use the installer, don't run it as root, please.
 
@@ -26,11 +27,11 @@ There's not much interesting in here either, but if you look in lib/My/DBI.pm, y
 
 * templates in ./templates
 
-Also very vanilla, but they do include lots of use of the factory to retrieve objects and configuration parameters. [% FOREACH cd = factory.all('cd') %], you know.
+These are more complicated than they need to be, mostly in order to show how to use the factory's relationships() method to automate display.
 
 * request handler in ./lib/My/Handler.pm
   
-This is a subclass of Class::DBI::Factory::Handler designed to show how the build_page is meant to be overridden and extended. It defines a series of operations, and expresses them quite consisely by way of the utility methods provided by CDFH.
+This is a subclass of Class::DBI::Factory::Handler meatn to show how it should be overridden. 
 
 A more proper application would almost certainly have a My::Factory and probably a My::Config too, thuogh they might only contain a couple of methods each.
 
@@ -40,5 +41,5 @@ site.conf contains a virtualhost definition ready to be Included in your Apache 
 
 If anything is the least bit unclear, you have any suggestions or you just want to explain how wrong-headed this is, please write to wrross@cpan.org. For proper bugs in Class::DBI::Factory and its offspring, please use http://rt.cpan.org.
 
-william ross
-26 January 2004
+William Ross
+19 February 2005

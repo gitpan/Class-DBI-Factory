@@ -5,15 +5,13 @@ use ExtUtils::MakeMaker;
 WriteMakefile(
     NAME         => 'Class::DBI::Factory',
     VERSION_FROM => 'lib/Class/DBI/Factory.pm',
-    AUTHOR       => 'william ross (wross@cpan.org)',
-    ABSTRACT     => 'Factory interface to a set of Class::DBI classes.',
+    AUTHOR       => 'William Ross (wross@cpan.org)',
+    ABSTRACT     => 'Factory interface to a set of Class::DBI classes, with optional mod_perl (1 or 2) application framework.',
     PREREQ_PM    => { 
     	Class::DBI => 0.96,
     	Ima::DBI => 0.33,
     	AppConfig => 0,
     	Test::Exception => 0,
-    	Apache::Request => 0,
-    	Apache::Constants => 0,
     	Email::Send => 0,
     	Error => 0,
     },

@@ -4,43 +4,52 @@ use DBI;
 use Cwd;
 use Test::More;
 use Test::Exception;
-use Apache::Constants qw(:response);
 
 BEGIN {
-    eval "use DBD::SQLite";
-    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 43);
+    eval "use DBD::SQLite2";
+    plan $@ ? (skip_all => 'Tests require DBD::SQLite2') : (tests => 52);
     use_ok('Class::DBI::Factory');
     use_ok('Class::DBI::Factory::Config');
     use_ok('Class::DBI::Factory::Handler');
     use_ok('Class::DBI::Factory::List');
     use_ok('Class::DBI::Factory::Ghost');
+    use_ok('Class::DBI::Factory::Mailer');
     use_ok('Class::DBI::Factory::Exception', qw(:try));
 }
 
 my $here = cwd;
 my $now = scalar time;
 
+my $dumb_factory = Class::DBI::Factory->new;
+isa_ok( $dumb_factory, 'Class::DBI::Factory', 'empty factory'); 
+
+$dumb_factory->use_classes(qw(Thing));
+my $classes = $dumb_factory->classes;
+is( $$classes[0], 'thing', 'use_classes'); 
+
+undef $dumb_factory;
+
 $ENV{_SITE_ID} = '_test';
 $ENV{_CDF_CONFIG} = "$here/test/cdf.conf";
 
 my $factory = Class::DBI::Factory->instance;
 
-ok( $factory, 'factory object configured and built' );
+ok( $factory, 'full factory constructed' );
 
 print "\nCONFIG\n\n";
 
-isa_ok($factory->config, 'Class::DBI::Factory::Config', 'CDFC properly loaded:');
-isa_ok($factory->config->{_ac}, 'AppConfig', 'CDFC AppConfig:');
+isa_ok($factory->config, 'Class::DBI::Factory::Config', 'full factory config');
+isa_ok($factory->config->{_ac}, 'AppConfig', 'config->{_ac}');
 is($factory->config->get('refresh_interval'), '3600', 'config values');
 is($factory->config->get('template_root'), '<undef>', 'config non-values');
 
 print "\nFACTORY\n\n";
 
-my $dsn = "dbi:SQLite:dbname=cdftest.db";
+my $dsn = "dbi:SQLite2:dbname=cdftest.db";
 my $config = set_up_database($dsn);
 $factory->set_db($config);
 
-ok( $factory->dbh && $factory->dbh->ping, 'connected to ' . $config->{db_type});
+ok( $factory->dbh && $factory->dbh->ping, 'connected to ' . $config->{db_type});    #12
 
 my $thing = $factory->create(thing => {
 	title => 'Wellington boot remover',
@@ -49,6 +58,8 @@ my $thing = $factory->create(thing => {
 });
 
 is( $thing->title, 'Wellington boot remover', 'factory->create' );
+
+is( $thing->_factory, $factory, 'managed class namespace properly interfered with');
 
 $factory->create(thing => {
 	title => 'Ironing Board',
@@ -72,6 +83,14 @@ my $id = $thing->id;
 my $rething = $factory->retrieve('thing', $id);
 
 is( $thing, $rething, 'factory->retrieve' );
+
+$thing->title('Wellyoff');
+$thing->update;
+
+is( $thing->title, 'Wellyoff', 'object->update' );
+
+$thing->title('Wellington boot remover');
+$thing->update;
 
 my $iterator = $factory->search_like('thing', title => '%board');
 
@@ -111,7 +130,10 @@ SKIP: {
 
 print "\nHANDLER\n\n";
 
-print "Handler tests would require Apache::Test and Apache::MM and that seems like overkill here. Do get in touch if you disagree (or would like to write some :)\n";
+print "Proper handler tests would require Apache::Test and a great load of configuration. It seems like overkill here. Do get in touch if you disagree (or would like to write some :)\n\n";
+
+my $handler = Class::DBI::Factory::Handler->new();
+isa_ok ($handler, 'Class::DBI::Factory::Handler', "handler object");
 
 print "\nLIST\n\n";
 
@@ -133,7 +155,6 @@ my $count = $other_list->total;
 is( $count, 2, 'list from iterator');
 
 throws_ok { $factory->list('anything'); } 'Exception::NOT_FOUND', 'NOT_FOUND exception thrown by list call with non-moniker';
-throws_ok { $factory->list_from(); } 'Exception::GLITCH', 'GLITCH exception thrown by bad list_from call';
 
 print "\nGHOST\n\n";
 
@@ -156,6 +177,43 @@ is ($otherghost->title, 'Wellington boot remover', 'title transcribed ok');
 is ($otherghost->moniker, 'thing', 'ghost moniker ok');
 is ($otherghost->class, 'Thing', 'ghost class ok');
 
+print "\nMAILER\n\n";
+
+my $mailer = $factory->mailer;
+isa_ok ($mailer, 'Class::DBI::Factory::Mailer', 'mailer object');
+
+$factory->mailer->mta('IO');
+is ($mailer->mta, 'IO', 'mailer transport set');
+
+my $mailfile = 'mailtest.txt';
+$factory->mailer->smtp($mailfile);
+is ($mailer->smtp, $mailfile, 'mailer smtp set');
+
+SKIP: {
+    eval "require File::Slurp; require Email::Send::IO;";
+    skip "File::Slurp and/or Email::Send::IO not installed.", 1 if $@;
+    unless ($@) {
+        $factory->send_message({
+            from => 'testy',
+            to => 'testy',
+            subject => 'testy',
+            message => 'hello dere',
+        });
+    
+        my $target = <<'EOM';
+To: testy
+From: testy
+Subject: testy
+
+hello dere
+EOM
+
+        my $message = File::Slurp::read_file( $mailfile ) if -e $mailfile;
+        is($message, $target, "Email message delivered ok (to local filesystem)");
+        unlink $mailfile;
+    }
+}
+
 print "\nEXCEPTIONS\n\n";
 
 # Handler tests mostly relate to exceptions
@@ -167,12 +225,12 @@ try {
 }
 catch Exception::NOT_FOUND with {
     my $ex = shift;
-    is ($ex->view, 'notfound', 'exception displays correct view');
+    is ($ex->view, 'notfound', 'exception returns correct view');
     is ($ex->text, 'Just testing', 'exception returns correct text');
     is ($ex->stringify, 'Just testing', 'exception stringifies politely');
 }
 otherwise {
-    print "bad!";
+    print "bad! Exception not caught.";
 };
 
 sub test_404 {
@@ -184,17 +242,17 @@ sub test_404 {
 
 END {
     undef $factory;
-    print "\nTest database deleted.\n\n" if $config->{db_type} eq 'SQLite' && unlink "${here}/cdftest.db";
+    print "\nTest database deleted.\n\n" if $config->{db_type} eq 'SQLite2' && unlink "${here}/cdftest.db";
 }
 
 sub set_up_database {
     my $dsn = shift;
 	my $dbh;
 	eval { $dbh = DBI->connect($dsn,"",""); };
-    die "connecting to (and creating) SQLite database './cdftest.db' failed: $!" if $@;
+    die "connecting to (and creating) SQLite2 database './cdftest.db' failed: $!" if $@;
     $dbh->do('create table things (id integer primary key, title varchar(255), description text, date int);');
     return {
-        db_type => 'SQLite',
+        db_type => 'SQLite2',
         db_name => 'cdftest.db',
         db_username => '',
         db_password => '',

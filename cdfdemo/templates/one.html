@@ -1,3 +1,13 @@
-[% PROCESS "types/${thing.moniker}.html" %]
+[% UNLESS thing.is_ghost %]
+	
+	[% IF thing.moniker == 'track' %]
+		[% INCLUDE "furniture/display.html" highlight=thing thing=thing.album %]
+	[% ELSE %]
+		[% INCLUDE "furniture/display.html" %]
+	[% END %]
+	
+	[% PROCESS "furniture/add.html" moniker=thing.moniker %]
 
-[% PROCESS edit.html %]
+[% END %]
+
+[% PROCESS "furniture/edit.html" moniker=thing.moniker %]

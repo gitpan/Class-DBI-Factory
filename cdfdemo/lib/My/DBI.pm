@@ -1,7 +1,7 @@
 package My::DBI;
 use strict;
 
-use base qw( Class::DBI::SQLite );
+use base qw( Class::DBI );
 use vars qw( $VERSION );
 $VERSION = '0.03';
 

@@ -1,18 +1,22 @@
 package Class::DBI::Factory::Handler;
 use strict;
 
-use Apache::Constants qw(:response);
+use Apache2;
+use Apache::Const qw(:common);
 use Apache::Request ();
 use Apache::Cookie ();
+use Apache::Upload ();
 
 use IO::File;
 use Carp ();
 use Class::DBI::Factory::Exception qw(:try);
+use List::Util qw(first max min);
 use Data::Dumper;
 
+require 5.6.0;
 use vars qw( $VERSION );
 
-$VERSION = '0.83';
+$VERSION = '0.9';      # mod_perl 2 only. well, let's see.
 $|++;
 
 =head1 NAME
@@ -68,11 +72,11 @@ sub new {
 		output_parameters => {},
 		cookies_out => [],
 	}, $class;
-	$self->{_request} = Apache::Request->instance($r) if $r;
+	$self->{_request} = Apache::Request->new($r) if $r;
 	return $self;
 }
 
-sub handler ($$) {
+sub handler : method {
 	my ($self, $r) = @_;
 	$self = $self->new($r) unless ref $self;
 	return $self->build_page;
@@ -81,91 +85,6 @@ sub handler ($$) {
 =head1 PAGE CONSTRUCTION
 
 The Handler includes some simple methods for directing output to the request handler with or without template processing, and a fairly well-developed skeleton for processing requests and working with cdbi objects. It is all designed to be easy to subclass and extend or replace.
-
-=head2 BASIC OUTPUT
-
-=head3 print( )
-
-Prints whatever it is given by way of the request handler's print method. Override if you want to, for example, print directly to STDOUT.
-
-Triggers send_header before printing.
-
-=cut
-
-sub print {
-	my $self = shift;
-	$self->send_header;
-	$self->request->print(@_);
-}
-
-=head3 process( )
-
-Accepts a (fully specified) template address and output hashref and passes them to the factory's process() method. The resulting html will be printed out via the request handler due to some magic in the template toolkit. If you are overriding process(), you will probably need to include a call to print().
-
-=cut
-
-sub process {
-	my ($self, $template, $output) = @_;
-	$self->debug(3, "DMH: processing template: '$template'");
-	$self->send_header;
-    $self->factory->process($template, $output, $self->request);
-}
-
-=head3 report()
-
-  my $messages = $handler->report;
-  $handler->report('Mission accomplished.');
-
-Any supplied values are assumed to be messages for the user, and pushed onto an array for later. A reference to the array is then returned.
-
-=cut
-
-sub report {
-	my $self = shift;
-	$self->debug(2, @_);
-    push @{ $self->{_report} }, @_;
-    return $self->{_report};
-}
-
-=head3 message()
-
-A simple get+set method commonly used in case of exception to pass through the main error message or some other page heading. Can be used in conjunction with report() and/or error() to liven up your day.
-
-=cut
-
-sub message {
-	my $self = shift;
-    $self->{_message} = $_[0] if @_;
-    return $self->{_message};
-}
-
-=head3 error()
-
-  my $errors = $handler->error;
-  $handler->error('No such user.');
-
-Any supplied values are assumed to be error messages. Suggests that debug display the messages (which it will, if debug_level is 1 or more) and returns the accumulated set as an arrayref.
-
-=cut
-
-sub error {
-	my $self = shift;
-	my @errors = @_;
-	$self->{_errors} ||= [];
-	$self->debug(1, 'error messages: ' . join('. ', @errors));
-    push @{ $self->{_errors} }, @_;
-    return $self->{_errors};
-}
-
-=head3 debug()
-
-hands over to factory->debug, which will print messages to STDERR if debug_level is set to a sufficiently high value in the configuration of this site.
-
-=cut
-
-sub debug {
-    shift->factory->debug(@_);
-}
 
 =head2 PAGE CONSTRUCTION
 
@@ -189,8 +108,12 @@ sub build_page {
     my $return_code = OK;
 	
     try {
-        $self->$_() for $self->task_sequence;
-    }   
+        for($self->task_sequence) {
+            $self->debug(2, "\n\n____________${_}");
+            $self->$_();
+        }
+    }
+    
     catch Exception::OK with {
         my $x = shift;
         $self->debug(1, 'caught OK exception: ' . $x->text);
@@ -246,7 +169,7 @@ And each step is described below.
 =cut
 
 sub task_sequence {
-    return qw( check_permission read_input do_op return_output );
+    return qw( check_permission adjust_input do_op return_output );
 }
 
 =head3 check_permission() 
@@ -257,44 +180,43 @@ This is just a placeholder, and always returns true. It is very likely that your
 
 sub check_permission { 1 };
 
-=head3 read_input() 
+=head3 adjust_input() 
 
-Placed here as a convenience in case subclasses want to read from or adjust the input set. One common tweak is to read path_info. Any changes you make here should be by way of C<set_param>: if you call type or id directly, for example, later steps may override your changes.
+Placed here as a convenience in case subclasses want to test or adjust the input set. One common tweak is to read path_info. Any changes you make here should be by way of C<set_param>: if you call moniker or id directly, for example, later steps may override your changes.
 
-NB. Most key values are retrieved from the input set by the corresponding method (eg calling ->type) will look at the 'type' or 'moniker' parameters if it finds no other value to return.
+NB. Most important variables are retrieved from the input set by the corresponding method (eg calling ->moniker) will look at the 'moniker' parameter if it finds no other value to return.
 
 =cut
 
-sub read_input { 
+sub adjust_input { 
 	my $self = shift;
-	$self->adjust_input;
+    $self->set_param( moniker => $self->param('type')) if $self->param('type') && ! $self->param('moniker');
 
-	unless ($self->param('id') || $self->param('type') || $self->param('moniker')) {
-    	$self->debug(3, "no id or type parameters. scanning input for class monikers.");
-        my @monikers = grep { $self->param($_) } @{ $self->factory->classes };
-        my $moniker = $monikers[0];
+	if ($self->param && ! ($self->param('id') || $self->param('moniker'))) {
+    	$self->debug(3, "input but no id or moniker parameters. looking for class monikers.");
+    	my $id;
+        my $moniker = first { $id = $self->param($_) } @{ $self->factory->classes };
         if ($moniker) {
-            $self->set_param(type => $moniker);
-            $self->set_param(id => scalar($self->param($moniker))) unless scalar($self->param($moniker)) eq 'all';
+            $self->debug(3, "found a moniker parameter: $moniker. value is $id.");
+            $self->set_param(moniker => $moniker);
+            $self->set_param(id => $id);
             $self->delete_param($moniker);
         }
 	}
 
-	unless ($self->param('id') || $self->param('type') || $self->param('moniker') || $self->param('view')) {
-    	$self->debug(3, "no id, type or view parameter. checking path info.");
+	if ($self->path_info && ! ( $self->param('id') || $self->param('moniker') || $self->param('view') )) {
+    	$self->debug(3, "path info, but no id, moniker or view parameter. splitting pi.");
         my ($general, $specific) = $self->read_path_info;
         if ($general eq 'op' && $specific) {
             $self->set_param('op', $specific);
         } elsif ($self->factory->has_class($general)) {
-            $self->set_param('type', $general);
+            $self->set_param('moniker', $general);
             $self->set_param('id', $specific) unless $general eq 'all';
         } elsif ($general) {
             $self->set_param('view', $general);
         }
     }
 }
-
-sub adjust_input { return }
 
 =head3 view( view_name )
 
@@ -317,51 +239,42 @@ sub view {
 
 =head3 check_view( view_name )
 
-Checks the supplied view name against the list of public and private views available here (ie the 'public_view' and 'private_view' configuration parameters). Returns true if the view is allowed: throws an exception of the appropriate kind if it doesn't exist or isn't allowed.
+Placeholder in case your subclass wants to restrict access to some views.
 
 =cut
 
-sub check_view {
-	my ($self, $view) = @_;
-	$view ||= scalar( $self->param('view') );
-    my %public = map { $_ => 1} $self->config->get('public_view');
-    my %private = map { $_ => 1} $self->config->get('private_view');
-    throw Exception::NOT_FOUND(-text => "No '$view' view exists here.") unless $private{$view} || $public{$view};
-    return 1 if $public{$view};
-    throw Exception::AUTH_REQUIRED(-text => "'$view' view not allowed") unless $self->session;
-    return 1;
-}
+sub check_view { 1 }
 
-=head3 type( moniker )
+=head3 moniker( $moniker )
 
-Looks for a moniker or type parameter in input and checks it against the factory's list of monikers. Can also be supplied with a moniker.
+Looks for a moniker parameter in input and checks it against the factory's list of monikers. Can also be supplied with a moniker.
 
 Throws a NOT_FOUND exception if the type parameter is supplied but does not correspond to a known data class.
 
-NB. the type, id, op and view parameters are held as request parameters: they are not copied over into the handler's internal hashref. That way we can be sure that all references to the input data return the same results.
+NB. the moniker, id, op and view parameters are held as request parameters: they are not copied over into the handler's internal hashref. That way we can be sure that all references to the input data return the same results.
 
 =cut
 
-sub type {
+sub moniker {
 	my $self = shift;
-	$self->debug(4, 'CDFH->type(' . join(',',@_) . ')');
-    $self->set_param(type => $_[0]) if @_;
-    return unless $self->param('type');
-  	throw Exception::NOT_FOUND(-text => "No '" . $self->param('type') . "' data class found") unless $self->check_type;
-    return scalar( $self->param('type') );
+	$self->debug(4, 'CDFH->moniker(' . join(',',@_) . ')');
+    $self->set_param(moniker => $_[0]) if @_;
+    return unless $self->param('moniker');
+  	throw Exception::NOT_FOUND(-text => "No '" . $self->param('moniker') . "' data class found") unless $self->check_moniker;
+    return scalar( $self->param('moniker') );
 }
 
-=head3 check_type( view_name )
+=head3 check_moniker( $moniker )
 
 Checks that the supplied moniker is among those managed by the local factory. Subclasses will hopefully have stricter criteria for who can see what.
 
 =cut
 
-sub check_type {
-    my ($self, $type) = @_;
-    $type ||= scalar($self->param('type'));
-	$self->debug(4, 'CDFH->permitted_type($type)');
-    return $self->factory->has_class($type);
+sub check_moniker {
+    my ($self, $moniker) = @_;
+    $moniker ||= scalar($self->param('moniker'));
+	$self->debug(4, 'CDFH->check_moniker($moniker)');
+    return $self->factory->has_class($moniker);
 }
 
 =head3 id( int )
@@ -379,7 +292,7 @@ sub id {
 
 =head3 thing( data_object )
 
-If both type (aka moniker) and id parameters are supplied, this method will retrieve and return the corresponding object (provided, of course, that the type matches a valid data class and the id an existing object of that class). 
+If both moniker and id parameters are supplied, this method will retrieve and return the corresponding object (provided, of course, that the moniker matches a valid data class and the id an existing object of that class). 
 
 You can also supply an existing object.
 
@@ -389,19 +302,20 @@ Returns immediately if the necessary parameters are not supplied. Throws a NOT_F
 
 sub thing {
 	my $self = shift;
-	$self->debug(4, 'CDFH->thing(' . join(',',@_) . ')');
+	$self->debug(3, 'CDFH->thing(' . join(',',@_) . ')');
 	return $self->{thing} = $_[0] if @_;
 	return $self->{thing} if defined $self->{thing};
 	
-	# we have to bypass the checking carried out by type(), so that individual objects have a chance to override category rules.
+	# we bypass the checking carried out by calling moniker() so that individual objects have a chance to override category access rules.
 	
-	my $type = $self->param('type');
+	my $moniker = $self->param('moniker');
 	my $id = $self->param('id');
-	return unless $type && $id;
+
+	return unless $moniker && $id;
     return $self->{thing} = $self->ghost if $id eq 'new';
     
-    my $thing = $self->factory->retrieve( $type, $id );
-   	throw Exception::NOT_FOUND(-text => "There is no object of type $type with id $id") unless $thing;
+    my $thing = $self->factory->retrieve( $moniker, $id );
+   	throw Exception::NOT_FOUND(-text => "There is no object of type $moniker with id $id") unless $thing;
    	throw Exception::AUTH_REQUIRED(-text => "You are not authorised to see that object") unless $self->check_thing($thing);
 
     return $self->{thing} = $thing;
@@ -417,7 +331,8 @@ Without a session mechanism we can't control access to individual objects, but s
 
 sub check_thing { 
     my ($self, $thing) = @_;
-    return $self->check_type($thing->type);
+    return unless $thing;
+    return $self->check_moniker($thing->moniker);
 }
 
 =head3 ghost( )
@@ -426,27 +341,27 @@ Builds a ghost object (see L<Class::DBI::Factory::Ghost>) out of the input set, 
 
 Ghost objects have all the same relationships as objects of the class they shadow. So you can call $ghost->person->title as usual.
 
-Returns undef if no type parameter is found: the ghost has to have a class to shadow.
+Returns if no moniker parameter is found: the ghost has to have a class to shadow.
 
 =cut
 
 sub ghost {
 	my $self = shift;
-	return unless $self->type;
+	return unless $self->moniker;
 
     $self->debug(3, 'CDFH is making a ghost');
 
     my $initial_values = { 
-        map { $_ => $self->factory->reify( $self->param($_), $_, $self->type ) }
+        map { $_ => $self->param($_) }
         grep { $self->param($_) }
-        $self->factory->columns($self->type, 'All')
+        $self->factory->columns($self->moniker, 'All')
     };
     $initial_values->{id} = 'new';
-    $initial_values->{type} = $self->type;
+    $initial_values->{moniker} = $self->moniker;
     $initial_values->{date} = $self->factory->now;
     $initial_values->{person} = $self->session->person if $self->session;
 
- 	return $self->factory->ghost_object($self->type, $initial_values);
+ 	return $self->factory->ghost_object($self->moniker, $initial_values);
 }
 
 =head3 op() 
@@ -468,7 +383,7 @@ This is a dispatcher: if an 'op' parameter has been supplied, it will check that
 
 A query string of the form:
  
- ?type=cd&id=4&op=delete
+ ?moniker=cd&id=4&op=delete
  
 will result in a call to something like Class::DBI::Factory::Handler->delete(), if delete is a permitted operation, which will presumably result in the deletion of the My::CD object with id 4.
 
@@ -509,8 +424,13 @@ This base class uses the Template Toolkit: override C<return_output> to use some
 
 sub return_output {
 	my $self = shift;
-	$self->debug(4, '*** return_output');
+	$self->view( $self->default_view ) unless $self->view || $self->thing || $self->moniker;
 	$self->process( $self->container_template, $self->assemble_output );
+}
+
+sub default_view {
+	my $self = shift;
+    return $self->config->default_view || 'welcome';    
 }
 
 sub return_error {
@@ -534,23 +454,21 @@ sub assemble_output {
 	$self->debug(4, '* CDFH: assemble_output');
 	my $extra = $self->extra_output;
 	my $output = { 
+
 		handler => $self,
 		factory => $self->factory,
-		config => $self->config,
-		session => $self->session || undef,
-		page_template => $self->page_template_path || undef,
-		thing => $self->thing || undef,
-		view => $self->view || undef,
-		id => $self->id || undef,
-		list => $self->list || undef,
-		url => $self->url || undef,
-		qs => $self->qs || undef,
-		path_info => $self->path_info || undef,
-		deleted_object => $self->deleted_object || undef,
-		input => { $self->all_fat_param } || undef,
-        site_id => $self->factory->id || undef,
+
+		input => { $self->all_param } || undef,
         errors => $self->error || undef,
-        message => $self->message || undef,
+		deleted_object => $self->deleted_object || undef,
+		report => $self->report || undef,
+
+		view => $self->view || undef,
+		moniker => $self->moniker || undef,
+		id => $self->id || undef,
+		thing => $self->thing || undef,
+		list => $self->list || undef,
+
         %$extra,
     };
     return $output;
@@ -584,7 +502,7 @@ sub extra_output {
 
 =head3 pager( ignore_id )
 
-If a type parameter has been supplied, and corresponds to a valid data class, this method will return a pager object attached to that class. If there's a page parameter, that will be passed on too.
+If a moniker parameter has been supplied, and corresponds to a valid data class, this method will return a pager object attached to that class. If there's a page parameter, that will be passed on too.
 
 Normally this method will return undef if an id parameter is also supplied, assuming that an object rather than a pager is required. Supply a true value as the first parameter and this reluctance will be overridden.
 
@@ -593,15 +511,15 @@ Normally this method will return undef if an id parameter is also supplied, assu
 sub pager {
 	my ($self, $insist) = @_;
 	return if $self->id && ! $insist;
-	return unless $self->type;
-    $self->{pager} = $self->factory->pager($self->type, $self->param('page'));
+	return unless $self->moniker;
+    $self->{pager} = $self->factory->pager($self->moniker, $self->param('page'));
     @{ $self->{contents} } = $self->{pager}->retrieve_all();
     return $self->{pager};
 }
 
 =head3 list( list_object )
 
-If a type parameter has been supplied, this will return an object of Class::DBI::Factory::List attached to the corresponding data class. 
+If a moniker parameter has been supplied, this will return an object of Class::DBI::Factory::List attached to the corresponding data class. 
 
 Any other parameters that match columns of the data class will also be passed through, along with any of the list-control flags (sortby, sortorder, startat and step).
 
@@ -612,10 +530,10 @@ As with pager, if there is an id parameter then the list will only be built if y
 sub list {
 	my ($self, $insist) = @_;
 	return if $self->id && ! $insist;
-	return unless $self->type;
-    my %list_criteria = map { $_ => scalar( $self->param($_) ) } grep { $self->param($_) } $self->factory->columns($self->type, 'All');
+	return unless $self->moniker;
+    my %list_criteria = map { $_ => scalar( $self->param($_) ) } grep { $self->param($_) } $self->factory->columns($self->moniker, 'All');
     $list_criteria{$_} = $self->param($_) for grep { $self->param($_) } qw( sortby sortorder startat step );
-    return $self->{list} = $self->factory->list( $self->type, %list_criteria );
+    return $self->{list} = $self->factory->list( $self->moniker, %list_criteria );
 }
 
 =head3 session( )
@@ -640,93 +558,13 @@ sub container_template {
 	my $self = shift;
     return $self->{_container_template} = $_[0] if @_;
     return $self->{_container_template} if $self->{_container_template};
-    return $self->{_container_template} = $self->default_container;
+    return $self->{_container_template} = $self->default_template;
 }
 
-sub default_container {
+sub default_template {
 	my $self = shift;
-    return $self->config->get('default_container');
+    return $self->config->get('default_template');
 }
-
-=head3 page_template( )
-
-Returns the i<name> of the secondary template that will be used to display the list or object that you are returning. This is passed as a page_template variable to the primary template identified by container_template(), where the generic container will use it to pull in the specific template that is required.
-
-By I<name>, incidentally, I mean the filename without its suffix. A directory path will be supplied by template_prefix and a file suffix by template_suffix, if appropriate. This apparent overcomplication allows handlers to choose between html and xml, for example. Note that you will also want to set (or override) C<mime_type> in that case. 
-
-=cut
-
-sub page_template {
-	my $self = shift;
-	return $self->{template} = $_[0] if @_;
-	return $self->{template} if $self->{template};
-	if ($self->thing) {
-        return $self->{template} = 'one';
-    } elsif ($self->type) {
-        return $self->{template} = 'many';
-     } elsif ($self->view) {
-        return $self->{template} = $self->view;
-   } else {
-        return $self->{template} = $self->default_view;
-    }
-}
-
-sub default_view {
-	my $self = shift;
-    return $self->config->get('default_view') || 'welcome';
-}
-
-sub page_template_path {
-	my $self = shift;
-	my $template = $self->page_template;        # may change prefix or suffix
-    return $self->template_prefix . $template . $self->template_suffix;
-}
-
-=head3 template_prefix( )
-
-A simple get-and-set placeholder: subclasses can either dictate the prefix per-request or override the method to direct the template processor to one or other subset of templates by returning a subdirectory address in the usual template form (ie no opening /). A trailing / will be added if necessary.
-
-=head3 template_category( )
-
-An older synonym of template_prefix.
-
-=head3 default_template_prefix( )
-
-Returns a file suffix, if appropriate. The default value is taken from the configuration parameter 'template_prefix'.
-
-=cut
-
-sub template_prefix { 
-    my $self = shift;
-    $self->{_template_dir} = $_[0] if @_;
-    $self->{_template_dir} ||= $self->default_template_prefix;
-    $self->{_template_dir} .= "/" if $self->{_template_dir} && $self->{_template_dir} !~ /\/$/;
-    $self->debug(3, 'returning template prefix ' . $self->{_template_dir});
-    return $self->{_template_dir};
-}
-
-sub template_category { return shift->template_prefix(@_); }
-sub default_template_prefix { shift->config->get('template_prefix') }
-
-=head3 template_suffix( )
-
-Simple get and set: accepts and holds a value, or failing that gets one from default_template_suffix. Prepends a . if necessary.
-
-=head3 default_template_suffix( )
-
-Returns a file suffix, if appropriate. The default value is taken from the configuration parameter 'template_suffix'.
-
-=cut
-
-sub template_suffix {
-	my $self = shift;
-	return $self->{suffix} = $_[0] if @_;
-	return $self->{suffix} if $self->{suffix} ;
-    my $suffix = $self->default_template_suffix;
-    $suffix = ".$suffix" if $suffix && $suffix !~ /^\./;
-    return $self->{suffix} = $suffix;
-}
-sub default_template_suffix { shift->config->get('template_suffix') || 'html' }
 
 =head1 BASIC OPERATIONS
 
@@ -748,20 +586,20 @@ calls delete() on the foreground object, but first creates a ghost copy and stor
 
 sub store_object {
 	my $self = shift;
+	$self->debug(1, "CDFH: store_object");
 	return unless $self->thing;
+	$self->debug(1, "thing is " . $self->thing->title);
 
     # if this is a new object then thing() will return a ghost that just needs to be solidified with make().
 
-	return $self->thing->make if $self->thing->is_ghost;
+	return $self->thing( $self->thing->make ) if $self->thing->is_ghost;
 
     # otherwise we apply input values to an existing object then update it.
 
 	my %input = $self->all_param;
 	my %parameters = map { $_ => $self->param($_) } grep { $self->thing->find_column( $_ ) } keys %input;
 	delete $parameters{$_} for $self->thing->columns( 'Primary' );
-
-	$self->debug(1, "updating columns: " . join(', ', keys %parameters));
-    $self->thing->$_($parameters{$_}) for keys %parameters;
+    $self->thing->set( %parameters );
     $self->thing->update;
 }
 
@@ -772,7 +610,6 @@ sub delete_object {
         $self->thing->delete;
         $self->thing(undef);
     }
-
 }
 
 sub deleted_object {
@@ -787,7 +624,7 @@ sub deleted_object {
 
 $handler->factory->retrieve_all('artist');
 
-returns the local factory object, or creates one if none exists yet.
+Returns the local factory object, or creates one if none exists yet. You can also pass in a factory object, though I can't imagine many cirumstances where this would be required. I only use during the installation tests.
 
 =head2 factory_class()
 
@@ -796,25 +633,133 @@ returns the full name of the class that should be used to instantiate the factor
 =cut
 
 sub factory_class { "Class::DBI::Factory" }
-sub factory { return shift->factory_class->instance(); }
+
+sub factory { 
+    my $self = shift;
+    return $self->{_factory} = $_[0] if @_;
+    return $self->{_factory} ||= $self->factory_class->instance(); 
+}
 
 =head2 request()
 
 Returns the Apache::Request object that started it all.
 
-=head2 config()
-
-Returns the configuration object which is controlling the local factory. This method is included here to let you override configuration mechanisms in subclass, but unless you have per-handler configuration changes, it is probably more sensible to make that sort of change in the factory than here. 
-
 =head2 tt()
 
 Returns the template object which is being used by the local factory. This method is here to make it easy to override delivery mechanisms in subclass, but this method costs nothing unless used, so if you're using some other templating engine that TT2, you will probably find it more straightforward to replace the process() method.
 
+=head2 config()
+
+Returns the configuration object which is controlling the local factory. The first time this is called in each request, it will call refresh() on the configuration object, which will cause configuration files to be re-read if they have changed.
+
 =cut
 
 sub request { shift->{_request}; }
-sub config { shift->factory->config(@_); }
 sub tt { shift->factory->tt(@_); }
+
+sub config { 
+    my $self = shift;
+    return $self->{_config} if $self->{_config};
+    my $config = $self->factory->config;
+    $config->refresh;
+    return $self->{_config} = $config;
+}
+
+=head2 BASIC OUTPUT
+
+=head3 print( )
+
+Prints whatever it is given by way of the request handler's print method. Override if you want to, for example, print directly to STDOUT.
+
+Triggers send_header before printing.
+
+=cut
+
+sub print {
+	my $self = shift;
+	$self->send_header;
+	$self->request->print(@_);
+}
+
+=head3 process( )
+
+Accepts a (fully specified) template address and output hashref and passes them to the factory's process() method. The resulting html will be printed out via the request handler due to some magic in the template toolkit. If you are overriding process(), you will probably need to include a call to print().
+
+=cut
+
+sub process {
+	my ($self, $template, $output) = @_;
+	$self->debug(3, "DMH: processing template: '$template'");
+	$self->send_header;
+    $self->factory->process($template, $output, $self->request);
+}
+
+=head3 report()
+
+  my $messages = $handler->report;
+  $handler->report('Mission accomplished.');
+
+Any supplied values are assumed to be messages for the user, and pushed onto an array for later. A reference to the array is then returned.
+
+=cut
+
+sub report {
+	my $self = shift;
+	$self->debug(2, @_);
+    push @{ $self->{_report} }, @_;
+    return $self->{_report};
+}
+
+=head3 error()
+
+  my $errors = $handler->error;
+  $handler->error('No such user.');
+
+Any supplied values are assumed to be error messages. Suggests that debug display the messages (which it will, if debug_level is 1 or more) and returns the accumulated set as an arrayref.
+
+=cut
+
+sub error {
+	my $self = shift;
+	my @errors = @_;
+	$self->{_errors} ||= [];
+	$self->debug(1, 'error messages: ' . join('. ', @errors));
+    push @{ $self->{_errors} }, @_;
+    return $self->{_errors};
+}
+
+=head1 REPORTING
+
+=head3 debug( $importance, @messages )
+
+Hands over to factory->debug, which will print messages to STDERR if debug_level is set to a sufficiently high value in the configuration of this site.
+
+=cut
+
+sub debug {
+    shift->factory->debug(@_);
+}
+
+=head2 log( $importance )
+
+Unlike the factory's debugging methods, these are intended to hold and return messages for the user. Whatever you send to C<log> is pushed onto the log...
+
+=head2 report()
+
+...ready to be read back out again when you call C<report>. In scalar it returns the latest item, in list the whole lot in ascending date order.
+
+=cut
+
+sub log {
+	my ($self, @messages) = @_;
+	push @{ $self->{_log} }, @messages;
+	$self->debug(1, @messages);
+}
+
+sub report {
+	my $self = shift;
+	return wantarray ? @{ $self->{_log} } : $self->{_log}->[-1];
+}
 
 =head1 CONTEXT
 
@@ -834,17 +779,19 @@ Returns the full address of this request (ie url?qs)
 
 sub url {
 	my $self = shift;
-	return $self->request->uri;
+	return $self->request->uri;    # changed for mod_perl2 from url to url
 }
 
 sub full_url {
 	my $self = shift;
-	return $self->url . "?" . $self->qs;
+	return $self->url . "?"; # . $self->qs;        need to work out how to do this under mod_perl2
 }
 
 sub qs {
 	my $self = shift;
-	return $self->request->query_string; 
+	my $r = $self->request;
+	my $qs = $r->args; # updated for mod_perl2, since Apache::RequestRec has no query_string method. docs are oddly silent on this.
+	return $qs;
 }
 
 =head2 path_info()
@@ -965,18 +912,10 @@ Erases all input by calling delete_param() for all input parameters.
 
 sub param {
 	my ($self, $p) = @_;
-	$self->debug(5, "param($p)");
-	return $self->request->param($p);
-}
-
-sub fat_param {
-	my ($self, $parameter) = @_;
-	if (wantarray) {
-	    my @input = $self->param($parameter);
-	    return map { $self->factory->reify( $_, $parameter ) } @input;
-	} else {
-	    return $self->factory->reify( scalar($self->param($parameter)), $parameter );
-	}
+	$self->debug(5, "CDFH->param($p);");
+	return $self->request->param unless $p;
+	my @input = map { $self->factory->inflate_if_possible($p => $_) } $self->request->param($p);
+	return wantarray ? @input : $input[0];
 }
 
 sub has_param {
@@ -988,42 +927,37 @@ sub has_param {
 
 sub all_param {
 	my $self = shift;
-	my %param;
-	for (keys %{ $self->request->parms } ){
+    $self->debug(3, 'CDFH: all_param');
+	my %p;
+	my @param_names = $self->request->param;
+    $self->debug(4, "input parameters: " . join(', ', @param_names));
+	for ( @param_names ){
 	    my @input = $self->param($_);
-	    $param{$_} = (scalar @input > 1) ? \@input : $input[0];
+	    $p{$_} = ($#input) ? \@input : $input[0];
 	}
-	return %param;
-}
-
-sub all_fat_param {
-	my $self = shift;
-	my %param = $self->all_param;
-	my %fat_param;
-	foreach my $p (keys %param) {
-	    my @values = (ref $param{$p} eq 'ARRAY') ? @{ $param{$p} } : ($param{$p});
-	    my @objects = map { $self->factory->reify($_, $p) } @values;
-	    $fat_param{$p} = (scalar @objects > 1) ? \@objects : $objects[0];
-	}
-    return %fat_param;
+	return %p;
 }
 
 sub set_param {
-	my $self = shift;
-	$self->debug(4, 'set_param(' . join(',',@_) . ')');
-	return $self->request->param(@_);
+	my ($self, $param, $value) = @_;
+	$self->debug(5, "CDFH->set_param($param => $value);");
+    return unless $param;
+	$self->request->args->{$param} = "$value";   
+
+	# updated for mod_perl2. 
+	# NB. Apache::RequestRec really hates having cdbi objects in the args table. segfaults every time. It'll be reinflated on a call to param($param)
 }
 
 sub delete_param {
 	my $self = shift;
 	$self->debug(4, 'delete_param(' . join(',',@_) . ')');
-	my $tab = $self->request->parms;
-	$tab->unset($_) for @_;
+	my $table = $self->request->param; # small change for mod_perl2: parms method now deprecated
+	$table->unset($_) for @_;
 }
 
 sub delete_all_param {
 	my $self = shift;
-	$self->delete_param(keys %{ $self->request->parms });
+	$self->delete_param(keys %{ $self->request->param }); # small change for mod_perl2: parms method now deprecated
 }
 
 =head2 uploads()
@@ -1084,19 +1018,11 @@ sub cookie {
   $handler->send_header();
   $handler->send_header('image/gif');
 
-Sends out an http header along with any associated cookies or other optional header fields, then sets a flag to prevent any more headers being sent. If no mime-type is supplied, it will use the default returned by default_mime_type(). print() and process() both call send_header() before output, so you may not need to use this method directly at all.
-
-=head2 no_cache()
-
-Returns false by default. If this method is subclassed such that it returns true, then the header sent will include the pragma:no-cache and expiry fields that are used to prevent browser caching.
+Under mod_perl2 all this has to do is set the content type, which it does by calling:
 
 =head2 mime_type( $type )
 
-A simple method that can be used to get or set the mime-type for this response, or subclassed to make some other decision altogether. Defaults to:
-
-=head2 header_sent( $type )
-
-Get or set method that returns true if headers have already been sent. This will cause set_cookie and redirect to bail out if they are called too late, as well as preventing duplicate headers from being sent.
+A simple method that can be used to get or set the mime-type for this response, or be subclassed to make some other decision altogether. Defaults to:
 
 =head2 default_mime_type()
 
@@ -1106,22 +1032,10 @@ Returns the mime type that will be used if no other is specified. The default de
 
 sub send_header {
 	my $self = shift;
-	return if $self->{_header_sent};
 	$self->request->content_type($self->mime_type);
-	$self->request->no_cache(1) if $self->no_cache;	
-	$_->bake for @{ $self->{cookies_out} };
-	$self->request->send_http_header;
-    $self->header_sent(1);
 }
 
-sub no_cache { 0 };
 sub default_mime_type { 'text/html' }
-
-sub header_sent {
-	my $self = shift;
-    return $self->{_header_sent} = $_[0] if @_;
-    return $self->{_header_sent};
-}
 
 sub mime_type {
 	my $self = shift;
@@ -1139,7 +1053,7 @@ $handler->set_cookie({
     -expires => '+100y',
 });
 
-Adds one or more cookies to the set that will be returned with this page (or picture or whatever it is). Note that the cookie is not actually returned until send_header() or redirect() is called, and that a cookie set after send_header() is called will have no effect except to produce a warning in the log.
+Adds one or more cookies to the set that will be returned with this page (or picture or whatever it is). The cookie is baked immediately (unlike mp1 versions of CDF).
 
 =cut
 
@@ -1149,7 +1063,10 @@ sub set_cookie {
         $self->debug(1, 'set_cookie: headers already sent');
         return;
     }
-	push @{ $self->{cookies_out} }, map { Apache::Cookie->new($self->request, %{ $_ }) } @_;
+    for (@_) {
+        my $cookie = Apache::Cookie->new($self->request, %{ $_ });
+        $cookie->bake;
+    }
 	return 1;
 }
 
@@ -1171,7 +1088,6 @@ sub redirect {
     }
 	my $url = shift || $self->{redirect} || $self->factory->config('url');
     $self->debug(3, "*** redirect: bouncing to $url");
-	$self->request->err_headers_out->add('Set-Cookie' => $_) for @{ $self->{cookies_out} };
 	$self->request->err_headers_out->add( Location => $url );
 	return REDIRECT;
 }
@@ -1187,7 +1103,6 @@ This is normally called from an exception handler: the task sequence is stopped 
 sub redirect_to_view {
 	my ($self, $view) = @_;
     $self->debug(3, "*** redirect_to_view: bouncing to view $view");
-    $self->template_prefix( $self->config->get('view_template_directory') || 'views' );
     $self->view( $view );
     return $self->return_output;
 }

@@ -4,7 +4,7 @@ use strict;
 use Carp qw();
 use vars qw( $AUTOLOAD $VERSION );
 
-$VERSION = "0.8";
+$VERSION = "0.9";
 
 =head1 NAME
 
@@ -26,7 +26,7 @@ Class::DBI::Factory::List - an iterator-based retriever and paginator of Class::
 		 sortorder => 'asc',
 	 });
 	 
-	 my @objects = $list->contents;
+	 my @objects = $list->page;
 	 my $total = $list->total;
 
 =head1 INTRODUCTION
@@ -116,7 +116,7 @@ sub from {
 	throw Exception::SERVER_ERROR(-text => "CDF::List can't make a list from an iterator without an iterator") unless $iterator;
 	my $content_class = $iterator->class;
     my $prefix = delete $param->{prefix};
-	my %parameters =  ( $source->type => $source->id ) if $source;
+	my %parameters =  ( $source->moniker => $source->id ) if $source;
 	my %constraints = map { $_ => $param->{$_} || $class->default($_) } keys %{ $class->default };
 	my $self = bless {
 		iterator => $iterator,
@@ -133,7 +133,7 @@ sub from {
 
 Execution of the list query is deferred until you call one of the content-display methods (unless you supplied the iterator up front, of course). They are:
 
-=head2 contents()
+=head2 page()
 
 returns a simple array of inflated Class::DBI objects obtained by applying your pagination constraints to the iterator built from your query. You get a page full of list, in other words, which is created by calling iterator->slice(). Very simple.
 
@@ -177,7 +177,9 @@ sub object_type {
 	return shift->content_class->moniker;
 }
 
-sub contents {
+sub contents { shift->page(@_); }
+
+sub page {
 	my $self = shift;
 	$self->debug(3, "CDF::List->contents.");
 	return $self->{contents} if $self->{contents};

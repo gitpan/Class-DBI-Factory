@@ -1,13 +1,12 @@
+<h1>[% factory.plural(moniker) %]</h1>
 
-<h1>[% list.total_entries %] [% IF list.total_entries == 1 %][% factory.title(type) %][% ELSE %][% factory.plural(type) %][% END %] found</h1>
+[% FOREACH item IN list.contents %]
 
-[% PROCESS furniture/pagination.html IF list.startat %]
+    <p><a href="[% config.url %]?[% item.moniker %]=[% item.id %]">[% item.title %]</a><br>
+    [% item.description %]
+    </p>
 
-[% FOREACH thing = list.contents %]
-	<p><a href="[% config.url %]?[% thing.moniker %]=[% thing.id %][% IF thing.moniker == 'track' %]#track[% thing.id %][% END %]">[% thing.title %]</a><br>
-	[% thing.description %]</p>
 [% END %]
 
-[% PROCESS furniture/pagination.html %]
-
-[% PROCESS edit.html thing='' %]
+[% PROCESS "furniture/pagination.html" %]
+[% PROCESS "furniture/add.html" %]

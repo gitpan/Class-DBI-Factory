@@ -1,11 +1,13 @@
 package Class::DBI::Factory::Exception;
-use Apache::Constants qw(:common :response);
+
+use Apache2;
+use Apache::Const qw(:common);
 
 use base qw(Error);
 use overload ('""' => 'stringify');
 
 use vars qw( $VERSION $factory_class );
-$VERSION = '0.2';
+$VERSION = '0.3';   # mod_perl 2 only
 $factory_class = 'Class::DBI::Factory';
 
 =head1 NAME

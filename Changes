@@ -1,12 +1,28 @@
 Revision history for Perl extension Class::DBI::Factory.
 
+0.99  18 February 2005
+    - handler now mod_perl2 only.
+    - db_Main hooks in data classes now inserted for you.
+    - severely tidied up: everything non-essential removed
+    - mail-sending functions separated out into Class::DBI::Factory::Mailer
+      (mostly to make them optional)
+    - new relationships() method in Factory retrieves useful bits of 
+      cdbi meta_info.
+    - all SQLite mentions now SQLite2, to avoid spurious warnings from 
+      newer versions.
+    - works much better without config file
+    - all hard work deferred for as long as possible to make cdf fit better
+      into nasty quick data-munging type scripts.
+    - demo application brought up to date, cleaned up, made to work properly
+    - documentation redone. still pretty windy, though.
+    - tests more extensive. still no proper handler tests, though.
+    
 0.86
     - Package-handling greatly improved.
     - Documentation updated to explain about problems with live_object 
       index and database shuffling
-    - boosterism moved to separate Readme.pm to simplify documentation.
+    - boosterism moved to separate Howto.pm to simplify documentation.
     - ghosts made more useful, flexible
-    - 
 
 0.85
     - Various small fixes and tweaks over the last four point releases,
