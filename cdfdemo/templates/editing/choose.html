@@ -1,0 +1,9 @@
+<p><b>Choose [% factory.title(type) %]</b><br>
+<select name="[% type %]">
+<option value=""[% ' selected' UNLESS this %]> </option>
+[% FOREACH x = factory.all(type) %]
+    <option value="[% x.id %]"[% ' selected' IF this.id == x.id %]> [% x.title %]</option>
+[% END %]
+</select><br>
+<a href="[% config.url %]?op=edit&[% type %]=new">create a new [% factory.title(type) %]</a>
+</p>

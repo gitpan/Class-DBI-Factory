@@ -1,0 +1,27 @@
+<div id="status">
+<p>factory is [% factory %]</p>
+
+<p>
+site_id is <b>[% factory.site_id %]</b><br>
+site_config_file is <b>[% factory.site_config_file %]</b><br>
+global_config_file is <b>[% factory.global_config_file %]</b><br>
+config_class is <b>[% factory.config_class %]</b><br>
+list_class is <b>[% factory.list_class %]</b><br>
+pager_class is <b>[% factory.pager_class %]</b><br>
+dbh is <b>[% factory.dbh %]</b><br>
+tt is <b>[% factory.tt %]</b><br>
+</p>
+
+<p>
+id <b>[% id %]</b><br>
+type <b>[% type %]</b><br>
+thing <b>[% thing %]</b><br>
+pager <b>[% pager %]</b><br>
+</p>
+
+<p>factory->classes: [% factory.classes.join(', ') %]
+</p>
+
+<p>factory->class_names: [% factory.class_names.join(', ') %]
+</p>
+</div>

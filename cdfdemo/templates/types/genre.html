@@ -1,0 +1,10 @@
+<h1>[% thing.title %]</h1>
+
+<p>[% thing.description %]</p>
+
+[% FOREACH a = thing.albums %]
+	<p><a href="[% config.url %]/[% a.moniker %]/[% a.id %]"><b>[% a.title %]</b></a><br>
+	[% a.description %]</p>
+[% END %]
+</h2>
+

@@ -1,0 +1,32 @@
+[% typetitle = factory.title(type) %]
+[% title = thing.title || typetitle %]
+
+[% INCLUDE furniture/head.html title=thing.title %]
+
+<form action="[% config.url %]" method="POST">
+
+<input type="hidden" name="type" value="[% type %]">
+<input type="hidden" name="id" value="[% id %]">
+<input type="hidden" name="op" value="store">
+
+<h1>[% IF id == 'new' %]create[% ELSE %]edit[% END %] [% title %]</h1>
+
+<p><b>title of [% typetitle %]</b><br>
+<input type="text" name="title" value="[% thing.title %]" size="44">
+</p>
+
+<p><b>description of [% typetitle %]</b><br>
+<textarea name="description" wrap="virtual" rows="12" cols="44">[% thing.description %]</textarea>
+</p>
+
+[% INCLUDE "editing/${type}.html" %]
+
+<p>This doesn't work with SQLite at the moment: bind_params seem to unbind and updates fail.</p>
+
+<input type="submit" value=" store [% typetitle %]">
+
+</form>
+
+[% INCLUDE furniture/status.html %]
+
+[% INCLUDE furniture/foot.html %]

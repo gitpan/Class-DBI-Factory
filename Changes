@@ -1,0 +1,30 @@
+Revision history for Perl extension Class::DBI::Factory.
+
+0.70  Tue Jan 26 2004
+    - first public release, and so heavily rewritten as to bear little relation 
+      to any previous version except in the names of the methods, so I shan't bother 
+      recording changes except to observe that the package/plugin thing, automatic 
+      configuration refresh and POD are all new in this release and therefore less 
+      beaten into shape than other parts.
+
+0.71  Thursday Jan 28 2004
+    - made the dbh connection method compatible with sybase by allowing the 
+      omission of db_name.
+    - configuration file can supply a whole DSN if required to get around 
+      compatibility issues (sugg. Ed Sabol).
+
+0.72
+    - bugfix: template path reversed before use, so that later definitions
+      appear earlier in path: allows package templates to override core
+      which was the whole point.
+    - various dull internal rationalisations
+    - bugfix: CDF::Config::package_loaded() now works. stupido.
+    - factory now exposes using() method for template decisions based 
+      on packages loaded. package/plugin thing generally smartened up 
+      behind it.
+    
+0.73
+    - debugging hooks spread throughout the system in a way that's useful
+      to subclasses. configuration files now supply a debug_level that
+      controls the amount of detail supplied. exception handling still
+      poor, though. that's next.

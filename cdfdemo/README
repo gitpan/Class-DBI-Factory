@@ -1,0 +1,67 @@
+Hello.
+
+This is a very basic demonstration of Class::DBI::Factory. It has quite a lot more complicated than it really needs to be to achieve its rather limited goals, the better to suggest how one might build a more complex application with CDF.
+
+The demo requires that you have installed:
+    Class::DBI::Factory
+    Template Toolkit
+    DBD::SQLite
+    DBD::DBI::SQLite
+
+and for the installer, if you use it:
+    Term::Prompt
+    File::Ncopy
+
+And about 100 other modules which are required by this lot.
+
+To install the demo somewhere, just run ./install.pl. That script will copy files to the directory you specify and fills in a couple of other values in the configuration files: you could very easily accomplish the same thing by hand if you prefer. If you do use the installer, don't run it as root, please.
+
+Once installtion is complete, the script will tell you what to do next. To find out more about what's going on, cd to the installation directory and examine the files. The database which this uses is in ./data and is very dull, so we'll ignore that. There are four other active ingredients:
+
+* data classes in ./lib/My
+
+There's not much interesting in here either, but if you look in lib/My/DBI.pm, you'll see the code required to give data classes access to the factory.
+
+* templates in ./templates
+
+Also very very dull, but they do include lots of use of the factory to retrieve objects and configuration parameters. [% FOREACH cd = factory.all('cd') %], you know.
+
+* request handler in ./lib/My/Handler.pm
+  
+This is a subclass of Class::DBI::Factory::Handler designed to show how the build_page is meant to be overridden and extended. It defines a series of operations, and expresses them quite consisely by way of the utility methods provided by CDFH.
+
+A more proper application would almost certainly have a My::Factory and probably a My::Config too, thuogh they might only contain a couple of methods each.
+
+* configuration files in ./conf
+
+site.conf contains a virtualhost definition ready to be Included in your Apache configuration. cdf.conf is the main configuration file for the demo application. It shows the bare minimum required for a working system: class declarations, database access configuration and a handful of key parameters.
+
+This gratuitous diagram may help to show how all this fits together in the case of a single application being used by several separate sites:
+
+
++------------------+  +--------------------+ +-------------------+                                  
+|                  |  |  +--------------+  | |  once per server  |                                  
+|   http           |  |  |   Config     |  | |                   |                                  
+|   request        |  |  |   object     |  | |                   |                                  
+|     |            |  |  +--------------+  | |                   |                                  
+|     |            |  |          |         | |                   |                                  
+|     v            |  |          |         | | +-------------+   |                                  
+| +-------------+  |  |  +--------------+  | | |  data       |   |                                  
+| | mod_perl    |  |  |  |   Factory    |--+-+-|  classes    |   |                                  
+| | content     |<-+--+--|   object     |  | | +-------------+   |                                  
+| | handler(s)  |  |  |  +--------------+  | +-------+-----------+                                  
+| +-------------+  |  |          |         +---------+-----------+                                  
+|     |            |  |          |                   |           |                                  
+|     |            |  |  +--------------+      +-------------+   |                                  
+|     v            |  |  |   database   |      |  mysql      |   |                                  
+|   http           |  |  |   handle     |------|  database   |   |                                  
+|   response       |  |  +--------------+      +-------------+   |                                  
+|                  |  |                                          |                                  
+|                  |  |                                          |                                  
+| once per request |  |  once per site                           |                                  
++------------------+  +------------------------------------------+ 
+
+If anything is the least bit unclear, you have any suggestions or you just want to explain how wrong-headed this is, please write to wrross@cpan.org. For proper bugs in Class::DBI::Factory and its offspring, please use http://rt.cpan.org.
+
+william ross
+26 January 2004
