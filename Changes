@@ -1,6 +1,9 @@
 Revision history for Perl extension Class::DBI::Factory.
 
 0.80
+    - Silly MANIFEST error corrected.
+
+0.80
     - Should be a drop-in replacement, with subclasses working exactly
       as before, but much extended:
     - Class::DBI::Factory::Exception now provides a base class for 

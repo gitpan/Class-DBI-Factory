@@ -14,6 +14,8 @@ lib/Class/DBI/Factory.pm
 lib/Class/DBI/Factory/Config.pm
 lib/Class/DBI/Factory/Handler.pm
 lib/Class/DBI/Factory/List.pm
+lib/Class/DBI/Factory/Exception.pm
+lib/Class/DBI/Factory/Ghost.pm
 
 cdfdemo/README
 cdfdemo/install.pl

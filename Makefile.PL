@@ -15,5 +15,6 @@ WriteMakefile(
     	Apache::Request => 0,
     	Apache::Constants => 0,
     	Email::Send => 0,
+    	Error => 0,
     },
 );

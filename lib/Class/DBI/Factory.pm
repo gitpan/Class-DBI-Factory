@@ -8,7 +8,7 @@ use Data::Dumper;
 
 use vars qw( $VERSION $AUTOLOAD $_factories );
 
-$VERSION = '0.8';
+$VERSION = '0.81';
 $_factories = {};
 
 =head1 NAME

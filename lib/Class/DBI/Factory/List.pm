@@ -254,12 +254,16 @@ sub where {
 
 sub order_by {
 	my $self = shift;
+	my ($package, $filename, $line) = caller;
 	my $ob = $self->constraints('sortby');
-	return unless $ob && $self->content_class->find_column($ob);
+	$self->debug(3, "list order_by is $ob");
+	return unless $ob;
+	$ob .= $self->_order_desc;
+	$self->debug(3, "and now it's $ob");
 	return $ob;
 }
 
-sub order_desc {
+sub _order_desc {
 	my $self = shift;
     return ' DESC' if $self->constraints('sortorder') =~ /desc/i;
 }
