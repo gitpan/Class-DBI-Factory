@@ -5,7 +5,7 @@ use Carp qw();
 use vars qw( $AUTOLOAD $VERSION );
 use Data::Dumper;
 
-$VERSION = "0.742";
+$VERSION = "0.751";
 
 =head1 NAME
 
@@ -93,12 +93,13 @@ my $list = Class::DBI::Factory::List->from( $iterator, $artist, { step => 20 });
 =cut
 
 sub new {
-	my ( $class, $param ) = @_;
-	my $content_class = delete $param->{class};
+	my ( $class, $input ) = @_;
+	my $content_class = delete $input->{class};
+    my $prefix = delete $input->{prefix};
 	return warn "Class::DBI::Factory::List must be supplied with at least a class parameter as full::class::name" unless ($content_class);
-    my $prefix = delete $param->{prefix};
-	my %parameters =  map { $_ => ($param->{$_} || $class->default($_)) } grep { $content_class->find_column($_) } keys %$param;
-	my %constraints = map { $_ => ($param->{$_} || $class->default($_)) } keys %{ $class->default };
+
+	my %parameters =  map { $_ => ($input->{$_} || $class->default($_)) } grep { $content_class->find_column($_) } keys %$input;
+	my %constraints = map { $_ => ($input->{$_} || $class->default($_)) } keys %{ $class->default };
 	my $self = bless {
 		_parameters => \%parameters,
 		_constraints => \%constraints,
@@ -106,8 +107,7 @@ sub new {
 	    _prefix => $prefix,
 	}, $class;
 
-    $self->debug(2, "*** new list. content_class is $content_class.");
-    $self->debug(2, "*** prefix is " . $self->{_prefix});
+    $self->debug(2, "*** new list. content_class is $content_class and prefix is $prefix");
     
     return $self;
 }

@@ -4,7 +4,7 @@ use strict;
 use Class::DBI::Pager;
 use base qw( Class::DBI::SQLite );
 use vars qw( $VERSION );
-$VERSION = '0.01';
+$VERSION = '0.02';
 
 # CDF->instance always returns one of a set of singletons.
 # using the site id defined by a PerlSetVar directive in site.conf

@@ -10,12 +10,12 @@ use Carp ();
 
 use vars qw( $VERSION );
 
-$VERSION = '0.741';
+$VERSION = '0.75';
 $|++;
 
 =head1 NAME
 
-Class::DBI::Factory::Handler - a handler template for Class::DBI::Factory applications
+Class::DBI::Factory::Handler - a handler base class for Class::DBI::Factory applications
 
 =head1 SYNOPSIS
     

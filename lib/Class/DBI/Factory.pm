@@ -4,7 +4,7 @@ use Ima::DBI;
 
 use vars qw( $VERSION $AUTOLOAD $_factories );
 
-$VERSION = '0.75';
+$VERSION = '0.752';
 $_factories = {};
 
 =head1 NAME
@@ -558,8 +558,6 @@ sub AUTOLOAD {
 	$method_name =~ s/.*://;
     return if $method_name eq 'DESTROY';
 
-	$self->debug(2, "CDF: $method_name");
-
 	$self->load_classes;
 	return $self->_carp("Class::DBI::Factory needs a moniker.", caller) unless $moniker;
 
@@ -569,7 +567,7 @@ sub AUTOLOAD {
 	my $method = $self->permitted_methods($method_name);
 	return $self->_carp("Class::DBI::Factory::AUTOLOAD is trying to find a '$method_name' method that is not permitted") unless $method;
 	
-	$self->debug(4, "CDF AUTOLOAD: $class->$method(" . join(', ', @_) . ");");
+	$self->debug(4, "AUTOLOAD: $class->$method(" . join(', ', @_) . ");");
 	
 	return wantarray ? $class->$method(@_) : scalar( $class->$method(@_) );
 }
@@ -589,6 +587,7 @@ sub permitted_methods {
 		retrieve_all => 'retrieve_all',
 		search => 'search',
 		search_like => 'search_like',
+		like => 'search_like',
 		where => 'search',
 		retrieve_where => 'search',
 		count_all => 'count_all',

@@ -1,9 +1,17 @@
 Revision history for Perl extension Class::DBI::Factory.
 
+0.752 Mon 21 june 2004
+    - bugfix: makefile was specifying Class::DBI 0.92. very bad. removed.
+    
+0.751 Sat 24 April 2004
+    - bugfix: lists with an id tag (aka prefix) now get the proper input values.
+    
 0.75 Fri 23 April 2004
     - list object now accepts prefix parameter used to mark input/output
       relevant to this list, and allow inclusion of several lists on one page.
     - minor improvements to Factory class, but no interface changes.
+    - pager-handling unborked thanks to Bill Moseley
+    - demo updated to paginate properly
     
 0.742 Fri 5 March 2004
     - bugs introduced by bug fix fixed.

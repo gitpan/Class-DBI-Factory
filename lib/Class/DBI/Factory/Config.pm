@@ -5,7 +5,7 @@ use AppConfig qw(:argcount);
 
 use vars qw( $VERSION $AUTOLOAD );
 
-$VERSION = '0.741';
+$VERSION = '0.75';
 
 =head1 NAME
 

@@ -8,7 +8,7 @@ WriteMakefile(
     AUTHOR       => 'william ross (wross@cpan.org)',
     ABSTRACT     => 'Factory access to a set of Class::DBI classes.',
     PREREQ_PM    => { 
-    	Class::DBI => 0.92,
+    	Class::DBI => 0,
     	Class::DBI::FromCGI => 0,
     	AppConfig => 0,
     },

@@ -4,7 +4,7 @@ use base qw( Class::DBI::Factory::Handler );
 use Data::Dumper;
 
 use vars qw( $VERSION );
-$VERSION = '0.01';
+$VERSION = '0.02';
 
 sub build_page {
 	my $self = shift;
