@@ -6,7 +6,7 @@ use Test::More;
 
 BEGIN {
     eval "use DBD::SQLite";
-    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 19);
+    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 15);
     use_ok('Class::DBI::Factory');
 }
 
@@ -78,14 +78,6 @@ my $count = $other_list->total;
 
 is( $count, 2, 'list from iterator');
 
-SKIP: {
-    eval { require Class::DBI::Pager };
-    skip "Class::DBI::Pager not installed", 1 if $@;
-    my $pager = $factory->pager('thing', 2);
-    my @things = $pager->retrieve_all;
-    is( $pager->last_page, 2, 'pager construction');
-}
-
 my $dbh = $factory->dbh;
 isa_ok( $dbh, "Ima::DBI::db", 'factory->dbh' );
 
@@ -106,15 +98,6 @@ SKIP: {
     $factory->process(\$template, { factory => $factory } , \$html);
     is( $html, $thing->title, 'template calls to factory methods');
 }
-
-$factory->debug_level(1);
-
-is( $factory->debug_level, 1, 'debug level set');
-
-is_deeply( $factory->debug(1, ' '), (" \n"), 'message over debug threshold shown');
-
-is( $factory->debug(2, ' '), undef, 'message under debug threshold muted');
-
 
 
 END {

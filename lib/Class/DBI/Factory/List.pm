@@ -3,8 +3,9 @@ package Class::DBI::Factory::List;
 use strict;
 use Carp qw();
 use vars qw( $AUTOLOAD $VERSION );
+use Data::Dumper;
 
-$VERSION = "0.741";
+$VERSION = "0.742";
 
 =head1 NAME
 
@@ -95,29 +96,37 @@ sub new {
 	my ( $class, $param ) = @_;
 	my $content_class = delete $param->{class};
 	return warn "Class::DBI::Factory::List must be supplied with at least a class parameter as full::class::name" unless ($content_class);
+    my $prefix = delete $param->{prefix};
 	my %parameters =  map { $_ => ($param->{$_} || $class->default($_)) } grep { $content_class->find_column($_) } keys %$param;
 	my %constraints = map { $_ => ($param->{$_} || $class->default($_)) } keys %{ $class->default };
-	return bless { 
+	my $self = bless {
 		_parameters => \%parameters,
 		_constraints => \%constraints,
 		_class => $content_class,
+	    _prefix => $prefix,
 	}, $class;
+
+    $self->debug(2, "*** new list. content_class is $content_class.");
+    $self->debug(2, "*** prefix is " . $self->{_prefix});
+    
+    return $self;
 }
 
 sub from {
 	my ($class, $iterator, $source, $param) = @_;
-	
 	my $content_class = $iterator->class;
-	my %parameters =  (
-		$source->type => $source->id,
-	) if $source;
+    my $prefix = delete $param->{prefix};
+	my %parameters =  ( $source->type => $source->id ) if $source;
 	my %constraints = map { $_ => $param->{$_} || $class->default($_) } keys %{ $class->default };
-	return bless {
+	my $self = bless {
 		iterator => $iterator,
 		_parameters => \%parameters,
 		_constraints => \%constraints,
 		_class => $content_class,
+	    _prefix => $prefix,
 	}, $class;
+    $self->debug(2, "*** list from iterator. content class is $content_class.");
+    return $self;
 }
 
 =head1 DISPLAYING A LIST
@@ -146,12 +155,14 @@ sub content_class { shift->{_class} }
 
 sub iterator {
 	my $self = shift;
+	$self->debug(3, "CDF::List->iterator.");
 	return $self->{iterator} if $self->{iterator};
-	return $self->{iterator} = $self->{_class}->search( $self->where, {order_by => $self->order_by});
+	return $self->{iterator} = $self->content_class->search( %{ $self->where }, {order_by => $self->order_by});
 }
 
 sub contents {
 	my $self = shift;
+	$self->debug(3, "CDF::List->contents.");
 	return $self->{contents} if $self->{contents};
 	my $counter = 1;
 	return @{ $self->{contents} } = map { $self->tweak_entry($_, $counter++) } $self->iterator->slice( $self->start, $self->end-1 );
@@ -160,14 +171,17 @@ sub contents {
 sub total {
 	my $self = shift;
 	return $self->{total} if $self->{total};
-	return $self->{total} = $self->iterator->count;
+	$self->debug(3, "CDF::List->total.");
+	my $it = $self->iterator;
+	return $self->{total} = $it->count;
 }
 
 sub title {
 	my $self = shift;
+	$self->debug(3, "CDF::List->title.");
 	return $self->{_title} = $_[0] if $_[0];
 	return $self->{_title} if $self->{_title};
-	return $self->{_title} = $self->{_class}->table;
+	return $self->{_title} = $self->content_class->table;
 }
 
 =head1 POST-PROCESSING
@@ -200,7 +214,7 @@ The main query-assembly routines are separated out here in order to facilitate s
 
 =head2 where()
 
-returns the hash of (column => value) which is passed to content_class->search().
+returns a hashref of {column => value} which can be passed on to content_class->search().
 
 =head2 order_by()
 
@@ -219,7 +233,7 @@ calculates and returns the end of the page based on start_at and step.
 sub where {
 	my $self = shift;
 	return unless keys %{ $self->{_parameters} };
-	return %{ $self->{_parameters} };
+	return $self->{_parameters};
 };
 
 sub order_by {
@@ -231,12 +245,12 @@ sub order_by {
 
 sub start { 
 	my $self = shift;
-	return $self->{_constraints}->{startat};
+	return $self->constraints('startat');
 };
 
 sub end { 
 	my $self = shift;
-	my $reach = $self->{_constraints}->{startat} + $self->{_constraints}->{step};
+	my $reach = $self->constraints('startat') + $self->constraints('step');
 	my $end = ($self->total_records < $reach) ? $self->total_records : $reach;
 	return $end;
 };
@@ -266,28 +280,42 @@ returns the query string that would be used to build the previous page
 sub qs {
 	my ($self, %override) = @_;
 	my %parameters = $self->_as_hash( %override );
-	return join '&', 
-		   map { ref $parameters{$_} ? "$_=" . $parameters{$_}->id : "$_=$parameters{$_}"} 
-		   grep { $parameters{$_} }
-		   keys %parameters;
+	return join '&',  map { "$_=$parameters{$_}" } keys %parameters;
 }
 
 sub next_qs {
 	my $self = shift;
-	my %parameters = $self->_as_hash;
-	$parameters{startat} = $self->next_start;
-	return join '&', 
-		   map { (ref $parameters{$_}) ? "$_=" . $parameters{$_}->id : "$_=$parameters{$_}" } 
-		   keys %parameters;
+	my %parameters = $self->_as_hash(startat => $self->next_start);
+	return join '&', map { "$_=$parameters{$_}" } keys %parameters;
 }
 
 sub previous_qs {
 	my $self = shift;
-	my %parameters = $self->_as_hash;
-	$parameters{startat} = $self->previous_start;
-	return join '&', 
-		   map { ref $parameters{$_} ? "$_=" . $parameters{$_}->id : "$_=$parameters{$_}"} 
-		   keys %parameters;
+	my %parameters = $self->_as_hash(startat => $self->previous_start);
+	return join '&', map { "$_=$parameters{$_}" } keys %parameters;
+}
+
+=head2 make_qs()
+
+Accepts a hash and returns it as a query string. Override this method if you would like to use a notation other than foo=bar;this=that.
+
+=cut
+
+sub make_qs {
+	my ($self, %contents) = @_;
+	return join ';', map { "$_=$contents{$_}" } keys %contents;
+}
+
+=head2 prefix()
+
+If a prefix parameter is supplied during construction, then all the pagination links returned will take the form "${prefix}parameter". This is to allow the separate pagination of more than one list on a page. If for some reason you want to set the prefix after list construction, just supply a value to this method.
+
+=cut
+
+sub prefix {
+	my $self = shift;
+	return $self->{_prefix} = $_[0] if @_;
+    return $self->{_prefix};
 }
 
 =head2 as_form()
@@ -308,11 +336,18 @@ sub as_form {
 		   keys %parameters;
 }
 
+=head2 _as_hash()
+
+This is the basis of all the as_* and *_qs methods: it returns a hash of parameter=>value, suitable for recreating this list object with whatever changes are required. It prepends the prefix marker to each key, and accepts a hash of override values.
+
+=cut
+
 sub _as_hash {
 	my ($self, %override) = @_;
-	my %parameters = ( %{ $self->{_parameters} }, %{ $self->{_constraints} } );
-#	$parameters{type} = $self->{_class}->type;
-	$parameters{$_} = $override{$_} for keys %override;
+	my $prefix = $self->prefix;
+	my %parameters;
+	$parameters{"$prefix$_"} = $override{$_} || $self->parameters($_) for keys %{ $self->parameters };
+	$parameters{"$prefix$_"} = $override{$_} || $self->constraints($_) for keys %{ $self->constraints };
 	return %parameters;
 }
 
@@ -324,7 +359,7 @@ returns true if the total number of records exceeds the number to be displayed o
 
 sub show_pagination {
 	my $self = shift;
-	return 1 unless $self->total_records < $self->{_constraints}->{step} && $self->{_constraints}->{startat} < 1;
+	return 1 unless $self->total_records < $self->constraints('step') && $self->constraints('startat') < 1;
 	return 0;
 }
 
@@ -336,7 +371,7 @@ returns the number of items that would be displayed on the previous page in the 
 
 sub previous_step {
 	my $self = shift;
-	return ($self->{_parameters}->{startat} > $self->{_constraints}->{step}) ? $self->{_constraints}->{step} : $self->{_constraints}->{startat};
+	return ($self->constraints('startat') > $self->constraints('step')) ? $self->constraints('step') : $self->constraints('startat');
 }
 
 =head2 previous_step()
@@ -347,7 +382,7 @@ returns the overall position at which the previous page in the sequence would st
 
 sub previous_start {
 	my $self = shift;
-	return ($self->{_constraints}->{startat} < $self->{_constraints}->{step}) ? 0 : $self->{_constraints}->{startat} - $self->{_constraints}->{step};
+	return ($self->constraints('startat') < $self->constraints('step')) ? 0 : $self->constraints('startat') - $self->constraints('step');
 }
 
 =head2 next_step()
@@ -358,7 +393,7 @@ returns the number of items that would be displayed on the next page in the sequ
 
 sub next_step {
 	my $self = shift;
-	return ($self->total_records > ($self->{_constraints}->{startat} + ($self->{_constraints}->{step} * 2))) ? $self->{_constraints}->{step} : ($self->total_records - ($self->{_constraints}->{startat} + $self->{_constraints}->{step}));
+	return ($self->total_records > ($self->constraints('startat') + ($self->constraints('step') * 2))) ? $self->constraints('step') : ($self->total_records - ($self->constraints('startat') + $self->constraints('step')));
 }
 
 =head2 next_step()
@@ -369,7 +404,7 @@ returns the overall position at which the next page in the sequence would start.
 
 sub next_start {
 	my $self = shift;
-	return ($self->total_records > ($self->{_constraints}->{startat} + $self->{_constraints}->{step})) ? $self->{_constraints}->{startat} + $self->{_constraints}->{step} : $self->total_records;
+	return ($self->total_records > ($self->constraints('startat') + $self->constraints('step'))) ? $self->constraints('startat') + $self->constraints('step') : $self->total_records;
 }
 
 =head1 ADMINISTRIVIA
@@ -444,6 +479,23 @@ sub AUTOLOAD {
 	return;
 }
 
+=head2 factory()
+
+returns the local factory object, or creates one if none exists yet.
+
+=head2 factory_class()
+
+returns the full name of the class that should be used to instantiate the factory. Defaults to Class:DBI::Factory, of course: if you subclass the factory class, you must mention the name of the subclass here.
+
+=cut
+
+sub factory_class { 'Class::DBI::Factory' }
+
+sub factory {
+	my $self = shift;
+	return $self->{_factory} ||= $self->factory_class->instance();
+}
+
 =head2 default()
 
 returns the value of a requested default, if a constraint name is supplied, or the hash of default values if not. Defaults can be overridden freely, but things might go awry if you don't supply at least the basic four.
@@ -471,6 +523,16 @@ sub default {
 sub ends_at { return shift->end; }
 sub starts_at { return shift->start; }
 sub total_records { return shift->total; }
+
+=head2 debug()
+
+hands over to L<Class::DBI::Factory>'s centralised debugging message thing.
+
+=cut
+
+sub debug {
+    shift->factory->debug(@_);
+}
 
 =head1 SEE ALSO
 

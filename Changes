@@ -1,5 +1,13 @@
 Revision history for Perl extension Class::DBI::Factory.
 
+0.75 Fri 23 April 2004
+    - list object now accepts prefix parameter used to mark input/output
+      relevant to this list, and allow inclusion of several lists on one page.
+    - minor improvements to Factory class, but no interface changes.
+    
+0.742 Fri 5 March 2004
+    - bugs introduced by bug fix fixed.
+
 0.741 Fri 5 March 2004
     - pager tests made conditional on presence of Class:DBI::Pager (d'oh).
     
@@ -20,8 +28,8 @@ Revision history for Perl extension Class::DBI::Factory.
     - debugging hooks spread throughout the system in a way that's useful
       to subclasses. Configuration files now supply a debug_level that
       controls the amount of detail supplied. exception handling still
-      poor, though. that's next.
-    - This version is the first uploaded to cpan.
+      poor, though.
+    - This version is the first uploaded to CPAN.
 
 0.72
     - bugfix: template path reversed before use, so that later definitions
@@ -46,4 +54,4 @@ Revision history for Perl extension Class::DBI::Factory.
       configuration refresh and POD are all new in this release and therefore less 
       beaten into shape than other parts.
 
-      
+...

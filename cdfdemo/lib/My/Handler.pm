@@ -21,8 +21,6 @@ sub read_input {
         my $moniker = $monikers[0];
         $self->{type} = $moniker;
         $self->{id} = $self->param($moniker) unless $self->param($moniker) eq 'all';
-        
-        
 		$self->delete_param($moniker);
     }
 }
@@ -120,7 +118,7 @@ sub pager {
     return $self->{pager} if $self->{pager};
     return $self->{pager} = $_[0] if $_[0];
     return unless $self->type;
-    $self->{pager} = $self->factory->pager($self->type);
+    $self->{pager} = $self->factory->pager($self->type, $self->param('step'), $self->param('page'));
     $self->{pager}->retrieve_all;
     return $self->{pager};
 }

@@ -1,11 +1,10 @@
 package Class::DBI::Factory;
 use strict;
 use Ima::DBI;
-use lib;
 
 use vars qw( $VERSION $AUTOLOAD $_factories );
 
-$VERSION = '0.741';
+$VERSION = '0.75';
 $_factories = {};
 
 =head1 NAME
@@ -559,17 +558,18 @@ sub AUTOLOAD {
 	$method_name =~ s/.*://;
     return if $method_name eq 'DESTROY';
 
-	$self->debug(2, "AUTOLOAD: method_name is $method_name");
+	$self->debug(2, "CDF: $method_name");
 
 	$self->load_classes;
 	return $self->_carp("Class::DBI::Factory needs a moniker.", caller) unless $moniker;
+
 	my $class = $self->class_name($moniker);
 	return $self->_carp("Class::DBI::Factory is trying to use a '$moniker' moniker that doesn't exist.") unless $class;
 	
 	my $method = $self->permitted_methods($method_name);
 	return $self->_carp("Class::DBI::Factory::AUTOLOAD is trying to find a '$method_name' method that is not permitted") unless $method;
 	
-	$self->debug(3, "$class->$method(" . join(', ', @_) . ");");
+	$self->debug(4, "CDF AUTOLOAD: $class->$method(" . join(', ', @_) . ");");
 	
 	return wantarray ? $class->$method(@_) : scalar( $class->$method(@_) );
 }
@@ -662,7 +662,7 @@ sub has_class {
 	return 1 if exists $self->{_class_name}->{$moniker};
 }
 
-=head2 title() plural() description() precedes()
+=head2 title() plural() description()
 
 each return the corresponding value defined in the data class, as in:
 
@@ -688,53 +688,6 @@ sub description {
 	return $self->{_description};
 }
 
-sub precedes {
-	my ($self, $moniker) = @_;
-	my $class = $self->class_name($moniker);
-	return unless $class;
-	my @monikers = $class->class_precedes if $class;
-	return \@monikers;
-}
-
-=head2 precedence()
-
-Returns a sorted list of class monikers in order of precedence. Precedence is declared in each class something like this:
-
-  sub precedes { qw( list of monikers ) }
-
-and this unbeautiful method assembles those separate definitions into a list of classes, in arbitrary order except that all the separate declarations of precedence will have been obeyed.
-
-There are various possible uses for this abstract mechanism, but it was prompted by a need to resolve ambiguities in input (does C<person=new&image=23> mean that we want a new person with image id 23, or that image id 23 should be give a new person?), and incidentally to allow several new-or-old objects to be declared in the same request. 
-
-You can ignore this completely, but if you do find it useful for some reason,  you'll probably find that has_a declarations provides most of the precedence information you need.
-
-There is no protection against loops in here, by the way...
-
-=cut
-
-sub precedence {
-	my $self = shift;
-	return $self->{_sorted_classes} if @{ $self->{_sorted_classes} };
-
-	my $classes = $self->classes;
-	my %rules = map { $_ => $self->precedes($_) } @$classes;
-	my %priority = map { $_ => 100 } @$classes;
-	
-	foreach my $moniker (@$classes) {
-		my @above_these = map { $priority{$_} } @{ $rules{$moniker} };
-		my $top = _highest_of( @above_these );
-		$priority{ $moniker } = $top + 1;
-	}
-	
-	my @precedence = sort { $priority{$b} <=> $priority{$a} } @$classes;
-	return $self->{_sorted_classes} = \@precedence;
-}
-
-sub _highest_of {
-	my $top = 0;
-	for (@_) { $top = $_ if $_ > $top }
-	return $top;
-}
 
 =head1 GOODS AND SERVICES
 
@@ -742,15 +695,13 @@ The rest of the factory's functions are designed to provide support to L<Class::
 
 =head2 set_db()
 
-Can be used to set database connection values if for some reason you don't want them in a config file. Expects to receive a hashref of parameters.
-
-The test suite for CDF uses this approach - unless SQLite is installed - to prompt for connection information then pass it to the factory.
+Can be used to set database connection values if for some reason you don't want them in a config file. Expects to receive a hashref of parameters. The tests for CDF use this approach, if you want a look.
 
   $factory->set_db({
     db_type => '...',			# defaults to 'SQLite'
     db_host => '...',			# in which case no other parameters
     db_port => '...',			# are needed except a path/to/file
-    db_name => '...',           # which is passed as db_name
+    db_name => '...',           # in db_name
     db_username => '...',
     db_password => '...',
   });
@@ -889,12 +840,13 @@ Should return the Full::Class::Name that will be used to create pagers. Defaults
 sub pager_class { "Class::DBI::Pager" }
 
 sub pager {
-	my ($self, $moniker, $perpage) = @_;
+	my ($self, $moniker, $perpage, $page) = @_;
 	my $class =  $self->pager_class || return;
 	eval "require $class;";
 	return $self->_carp("failed to load pager class: $@") if $@;
-	$perpage ||= 20;
-	return $self->class_name($moniker)->pager($perpage, 1); 
+	$perpage ||= 10;
+	$page ||= 1;
+	return $self->class_name($moniker)->pager($perpage, $page); 
 }
 
 =head2 list()
@@ -936,13 +888,17 @@ sub list {
  	$criteria{class} = $self->class_name( $moniker );
 	return $self->_carp("Class::DBI::Factory->list: no class found (nor retrieved from moniker '$moniker'). Cannot build list. \n") unless $criteria{class};
 
- 	my %expanded_criteria = map { $_ => $self->reify( $criteria{$_}, $_ ) } keys %criteria;
-	return $self->list_class->new(\%expanded_criteria);
+ 	my %inflated_criteria = map { $_ => $self->reify( $criteria{$_}, $_ ) } keys %criteria;
+	return $self->list_class->new(\%inflated_criteria);
 }
 
 sub list_from {
 	my $self = shift;
 	my $iterator = shift || return;
+
+	my $class =  $self->list_class || return;
+	eval "require $class;";
+	return $self->_carp("failed to load list class: $@") if $@;
 	return $self->list_class->from( $iterator, @_ );
 }
 
@@ -1084,14 +1040,14 @@ sub report {
 
 =head2 debug()
 
-Set debug_level to a value greater than zero and the inner monologue of the handler (and some other modules) will be directed to STDERR. The first value supplied to debug should be an integer, the rest messages. If the number is less than debug_level, the messages will be printed. 
+Set debug_level to a value greater than zero and the inner monologue of the handler (and some other modules, and any that you add) will be directed to STDERR. The first value supplied to debug should be an integer, the rest messages. If the number is less than debug_level, the messages will be printed. 
 
     $self->factory->debug(2, "session id is $s", " session key is $k");
     $self->factory->debug(-1, "this will always appear in the log");
 
 =head2 debug_level()
 
-Sets and gets the threshold for display of debugging messages. Defaults to the config file value. Roughly:
+Sets and gets the threshold for display of debugging messages. Defaults to the config file value (set by the debug_level parameter). Roughly:
 
 =over
 
@@ -1115,21 +1071,21 @@ adds more detail, and...
 
 =cut
 
-sub debug_level {
-    my $self = shift;
-    return $self->{_debug_level} = $_[0] if @_;
-    return $self->{_debug_level} if $self->{_debug_level};
-    return $self->{_debug_level} = $self->config->get('debug_level');
-}
-
 sub debug {
     my ($self, $level, @messages) = @_;
     return unless ref $self;
     my $threshold = $self->debug_level || 0;
     return if $level > $threshold;
-    my @errors = map { "$_\n" } @messages;
-    warn @errors;
-    return @errors;
+    my $tag = "[" . $self->id . "]";
+    warn map { "$tag $_\n" } @messages;
+    return @messages;
+}
+
+sub debug_level {
+    my $self = shift;
+    return $self->{_debug_level} = $_[0] if @_;
+    return $self->{_debug_level} if $self->{_debug_level};
+    return $self->{_debug_level} = $self->config->get('debug_level');
 }
 
 =head2 timestamp()
@@ -1160,7 +1116,7 @@ If CDF is loaded under mod_perl and Apache::Status is in your mod_perl configura
 
 The report it produces is useful in debugging multiple-site configurations, solving namespace clashes and tracing startup problems, none of which should happen if the module is working properly, but you know.
 
-Remember that the server must be started in single-process mode for the reports to be of much use, and that factories are not created until they're needed (eg. on the first request, not on server startup).
+Remember that the server must be started in single-process mode for the reports to be of much use, and that factories are not created until they're needed (eg. on the first request, not on server startup), so you need to blip each site before you can see its factory in the report.
 
 =cut
 
@@ -1173,10 +1129,9 @@ sub add_status_menu {
 
 sub status_menu {
 	my ($r,$q) = @_;
-	my @strings = (qq|<h1>CDF factories</h1><p>Here is the list of factory-instances currently in memory.</p>
-	<p>Note that a factory is created by the first request that requires it, so you may need to blip each site before you see the factories here.</p>|);
+	my @strings = (qq|<h1>CDF factories</h1><p>This is the list of factory-instances currently in memory. Note that a factory is not created until a request requires it, so you need to blip each site before you see the factories here, and that the same goes for each apache child process. This (and other Apache::Session reports) will work best in single-process mode.</p>|);
 
-	for (keys %$_factories) {
+	for (sort keys %$_factories) {
 		my $string = "<h3>site id: $_</h3>";
 		my $factory = __PACKAGE__->instance($_);
 
@@ -1195,12 +1150,6 @@ sub status_menu {
 	}
 	return \@strings;
 }
-
-# these last few methods just preserve older syntax
-# and will disappear soon, with any luck.
-
-sub object_tags {return sort shift->classes(@_) }
-sub object_set_in_order { shift->precedence(@_) }
 
 =head1 BUGS
 
@@ -1222,9 +1171,6 @@ Improve Apache::Status reports. Include optional logs and error reports.
 =item *
 Write direct tests for the other three modules
 
-=item *
-Hit modules with hammer of public opinon and see what breaks
-
 =back
 
 =head1 REQUIRES
@@ -1235,7 +1181,6 @@ Hit modules with hammer of public opinon and see what breaks
 =item L<AppConfig> (unless you replace the configuration mechanism)
 =item L<Apache::Request> (if you use CDF::Handler)
 =item L<Apache::Cookie> (if you use CDF::Handler);
-=item L<Term::Prompt> (but only for tests)
 =item L<DBD::SQLite> (but only for tests and demo)
 
 =back

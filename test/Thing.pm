@@ -2,7 +2,6 @@ package Thing;
 
 use strict;
 use base qw(Class::DBI);
-use Class::DBI::Pager;
 
 Thing->table('things');
 Thing->columns(Primary => qw(id));

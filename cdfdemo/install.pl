@@ -5,7 +5,7 @@ use strict;
 use Term::Prompt qw(termwrap prompt);
 use IO::File;
 use File::Path;
-use File::Ncopy;
+use File::NCopy;
 use Template;
 
 $|++;

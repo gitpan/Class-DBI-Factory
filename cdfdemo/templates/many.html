@@ -7,8 +7,19 @@
 	[% thing.description %]</p>
 [% END %]
 
+[% IF pager.total_entries > pager.entries_per_page %]
+
+    [% FOREACH p = [pager.first_page .. pager.last_page] %]
+    [% IF p == pager.current_page %]
+        [[% p %]]
+    [% ELSE %]
+        <a href="[% config.url %]?type=[% type %]&page=[% num %]&step=[% step %]">[% num %]</a>[% END %]
+    [% END %]
+    
+[% END %]
+
 <p>
-<a href="[% config.url %]?[% thing.moniker %]=new&op=edit">create a new [% factory.title(type) %]</a>
+<a href="[% config.url %]?[% type %]=new&op=edit">create a new [% factory.title(type) %]</a>
 </p>
 
 [% INCLUDE furniture/foot.html %]

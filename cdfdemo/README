@@ -9,13 +9,13 @@ The demo requires that you have installed:
 
 and for the installer, if you use it:
     Term::Prompt
-    File::Ncopy
+    File::NCopy
 
 And about 100 other modules which are required by this lot.
 
 To install the demo somewhere, just run ./install.pl. That script will copy files to the directory you specify and fill in a couple of other values in the configuration files: you could very easily accomplish the same thing by hand if you prefer. If you do use the installer, don't run it as root, please.
 
-Once installtion is complete, the script will tell you what to do next. To find out more about what's going on, cd to the installation directory and examine the files. The database which this uses is in ./data and is very dull, so we'll ignore that. There are four other active ingredients:
+Once installation is complete, the script will tell you what to do next. To find out more about what's going on, cd to the installation directory and examine the files. The database which this uses is in ./data and is very dull, so we'll ignore that. There are four other active ingredients:
 
 * data classes in ./lib/My
 

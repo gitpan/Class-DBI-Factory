@@ -126,7 +126,7 @@ sub build_page {
 		$output->{thing} = $self->factory->retrieve($moniker, $id);
 		$template = "one.$suffix";
 	} elsif ($moniker) {
-		$output->{pager} = $self->factory->pager($moniker);
+		$output->{pager} = $self->factory->pager($moniker, $self->param('page'));
 		@{ $output->{contents} } = $output->{pager}->retrieve_all();
 		$output->{type} = $moniker;
 		$template = "many.$suffix";
