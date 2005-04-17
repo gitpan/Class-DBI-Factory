@@ -1,8 +1,14 @@
-Class::DBI::Factory v0.99
+Class::DBI::Factory v0.994
 
-The version of CDF::Handler included here is the first to require mod_perl2. To work with mod_perl1 you need v0.86.
+There was quite a lot of grumbling about the recent shift to mod_perl 2, so we've shifted back again, helped along by the API chaos that currently afflicts both mod_perl and libapreq. To clarify:
 
-See the POD in Class::DBI::Factory.pm and the other modules for proper documentation.
+* Class::DBI::Factory itself neither knows nor cares about mod_perl
+* Class::DBI::Factory::Handler works with mod_perl 1
+* Class::DBI::Factory::Handler2 works with mod_perl 2
+
+But in the short term it is very unlikely that CDFH2 will work cleanly, as the interface to mod_perl has just changed. I hope that future versions of the Handler base class will be able to work cleanly with both versions of mod_perl, but that will take a few weeks. 
+
+See the POD in Class::DBI::Factory and the other modules for proper documentation.
 
 Read cdfdemo/README and the run cdfdemo/install.pl to set up a simple demo application and see how the handlers, factories and data classes fit together.
 
@@ -11,4 +17,4 @@ For mailing list support, have a look at www.spanner.org/cdf. It doesn't exist a
 If anything is unclear, you have any suggestions or you just want to explain how wrong-headed this is, please write to wrross@cpan.org. For proper bugs in Class::DBI::Factory and its helpers, please use http://rt.cpan.org.
 
 William Ross
-19 February 2005
+17 April 2005

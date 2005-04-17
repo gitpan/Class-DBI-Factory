@@ -3,23 +3,21 @@ use strict;
 
 use base qw( Class::DBI );
 use vars qw( $VERSION );
-$VERSION = '0.03';
+$VERSION = '0.04';
 
-# CDF->instance always returns one of a set of singletons.
-# using the site id defined by a PerlSetVar directive in site.conf
+# The Factory drops a _factory() method into each data class. Here we 
+# rename it to factory() for simplicity on templates, since we know there
+# are no data classes with a 'factory' column.
 
-sub factory {
-	return Class::DBI::Factory->instance();
-}
+sub factory { return shift->_factory(@_); }
 
-# overriding db_Main replaces the whole Ima::DBI database-handle-caching mechanism
-# in this case to ask the factory for a handle instead.
+# these shortcuts provide data classes with quick access to the factory's 
+# configuration and template objects.
 
-sub db_Main { return shift->factory->dbh(@_) }
-sub config { return shift->factory->config(@_) }
-sub tt { return shift->factory->tt(@_) }
+sub config { return shift->_factory->config(@_) }
+sub tt { return shift->_factory->tt(@_) }
 
-# these are useful sometimes, and are only included here so that they can be 
+# these are useful sometimes, and are included here so that they can be 
 # omitted from data classes without causing any trouble.
 
 sub class_title { '...' }

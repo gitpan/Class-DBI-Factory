@@ -1,6 +1,8 @@
 package Class::DBI::Factory;
 use strict;
+
 use Class::DBI::Factory::Exception qw(:try);
+use Data::Dumper;
 
 # to connect to the database in the proper manner, we must
 use Ima::DBI;
@@ -9,17 +11,16 @@ use Ima::DBI;
 use Class::DBI;
 $Class::DBI::Weaken_Is_Available = 0;
 
-use vars qw( $VERSION $AUTOLOAD $_factories $class_debug_level $throw_exceptions $factory_id_from );
+use vars qw( $VERSION $AUTOLOAD $_factories $class_debug_level $factory_id_from $ghost_class $list_class $iterator_class $mailer_class $db_rootclass);
 
-$VERSION = '0.99';
+$VERSION = '0.994';
 $_factories = {};
 $class_debug_level = 0;
-$factory_id_from = '_SITE_ID';
-$throw_exceptions = 1;
+$factory_id_from = '_SITE_TITLE';
 
 =head1 NAME
 
-Class::DBI::Factory - factory interface to a set of Class::DBI classes, with optional mod_perl2 application skeleton
+Class::DBI::Factory - factory interface to a set of Class::DBI classes, with optional mod_perl application skeleton
 
 =head1 SYNOPSIS
 
@@ -39,17 +40,13 @@ Class::DBI::Factory - factory interface to a set of Class::DBI classes, with opt
   my $item = $factory->retrieve('item', 1);
   my $iterator = $factory->search('item', year => 1980);
 
-  # under mod_perl or another persistent environment
-  
-  $ENV{_SITE_ID} = 'mysite';
-  my $factory = Class::DBI::Factory->instance();
     
   # in an apache host configuration:
   
-  PerlSetEnv _SITE_ID '_my_site'
+  PerlSetEnv _CDF_SITE_CONFIG '/home/my_site/conf/cdf.conf'
   <Location "/directory">
     SetHandler perl-script
-    PerlResponseHandler Class::DBI::Factory::Handler
+    PerlHandler Class::DBI::Factory::Handler
   </Location>
   
   # and on a template somewhere:
@@ -61,58 +58,104 @@ Class::DBI::Factory - factory interface to a set of Class::DBI classes, with opt
   ) %][% album.title %]<br>[% END %]
   </p>
 
-  
 =head1 INTRODUCTION
 
-Class::DBI::Factory can be used as a quick, clean way to hold a few cdbi classes together and access their class methods, or as a full framework for a mod_perl-based web application that deals with all the tricky aspects of using Class::DBI with more than one instance of the same application. Yes, Veronica, you can serve as many hosts as you like with one cdbi app.
+If you use Class::DBI::Factory by itself, it's a quick, clean way to work with a set of Class::DBI data classes, providing a simple way to access their data and class methods and removing some of cdbi's limitations: with the factory it's very easy to use the same data classes for different databases at the same time.
 
-In the simplest case - you've hacked up a few cdbi classes and you want a quick and easy way to move information through them - you just need to pass in connection parameters and class names:
+If you use Class::DBI::Factory with the set of helper classes that come with it, it's a full framework for MVC-friendly mod_perl-based web applications. The supplied Handler base class makes the factory's simple, consistent interface available on TT2 (or other) templates and hides all the complexity of working under mod_perl. In this context the database-abstraction that the factory offers allows you to use the same application on several sites on the same server, which is where all this began many years ago.
+
+CDF is a simple alternative to application frameworks like Maypole and Catalyst. It doesn't automate the creation of CDBI classes - I prefer to write them - but it handles pretty much everything else and is very easy to extend and override.
+
+=head1 EXAMPLES
+
+A minimal script for getting at your data with no config files or other clutter:
 
   use Class::DBI::Factory;
   my $factory = Class::DBI::Factory->new;
   $factory->set_db({ 
     db_type => 'mysql',
-    db_name => 'items',
+    db_name => 'qanda',
     db_username => 'me',
     db_password => 'password',
   });
   
-  $factory->use_classes(qw(My::Item));
-  my $item = $factory->retrieve('item', 1);
+  $factory->use_classes(qw(My::Answer My::Question));
+  my $question = $factory->retrieve('question', 1);
 
-You'll soon want to put all that in a configuration file, though:
+The same thing but with a configuration file:
 
-  # in limited-access config file './items.conf'
+  # in limited-access config file './answers.conf'
   
   db_type = 'mysql',
-  db_name = 'items',
+  db_name = 'qanda',
   db_username = 'me',
   db_password = 'password',
-  class = My::Item
-  class = My::Item::Category
-  class = My::Person
+  class = My::Answer
+  class = My::Question
   
   # in your script
 
   use Class::DBI::Factory;
   my $factory = Class::DBI::Factory->new('./items.conf');
-  my $item = $factory->retrieve('item', 1);
+  my $question = $factory->retrieve('question', 1);
 
-It does get a little more complicated after that, but CDF comes with a set of five helpers that might make the rest of your job easier too:
+A very simple mod_perl application:
+
+  # in your virtualhost configuration
+
+  PerlSetEnv _CDF_CONFIG '/home/conf/cdf.conf'
+  PerlSetEnv _CDF_SITE_CONFIG '/home/answers/conf/site.conf'
+  
+  <Location "/answers">
+    SetHandler perl-script
+    PerlHandler Class::DBI::Factory::Handler
+  </Location>
+
+  # in /home/answers/conf/cdf.conf
+
+  db_type = 'mysql',
+  db_name = 'qanda',
+  db_username = 'me',
+  db_password = 'password',
+  class = My::Question
+  class = My::Answer
+  master_template = 'master.tt2'
+  template_path = '/home/answers/templates'
+  default_view = 'welcome'
+  
+  # in /home/answers/templates/master.tt2
+
+  [% PROCESS "views/${view}.tt2" %]
+
+  # in /home/answers/templates/views/welcome.tt2
+
+  [% IF input.question %]
+    [% answers = factory.search('answer', 'question', question ) %]
+    ...
+  [% ELSE %]
+    [% questions = factory.search('answer', 'question', question ) %]
+    [% FOREACH q IN questions %]
+      ...
+    [% END %]
+  [% END %]
+
+It does get a little more complicated, but CDF comes with a set of five helpers that should make the rest of your job easier too:
 
 =over
 
 =item L<Class::DBI::Factory::Config>
 
-Wraps around Andy Wardley's AppConfig to provide a simple, friendly configuration mechanism for CDF and the rest of your application. This is very likely to be loaded during even the simplest use of CDF, but you can supply your own configuration mechanism instead. See B<CONFIGURATION> below.
+Wraps around Andy Wardley's AppConfig to provide a simple, friendly configuration mechanism for CDF and the rest of your application. This is very likely to be loaded during even the simplest use of CDF, but you can supply your own configuration mechanism instead.
   
 =item L<Class::DBI::Factory::Handler>
 
-A fairly comprehensive base class for mod_perl handlers, providing standard ways of retrieving and displaying one or many cdbi objects. If you're happy to use the Template Toolkit, then almost all of your work is already done here in a nice clean MVC-friendly sort of way. See the L<Class::DBI::Factory::Handler> docs for much much more.
+A fairly comprehensive base class for mod_perl handlers, providing standard ways of retrieving and displaying one or many cdbi objects. It's biased towards the Template Toolkit but you can easily replace that with your preferred templating system. See the L<Class::DBI::Factory::Handler> docs for much much more. 
+
+There is also a rather experimental Class::DBI::Factory::Handler2 that should provide mod_perl 2 compatibility with little or no rewriting. It's in a fragile state at the moment because of fluctuations in the mod_perl and libapreq2 APIs, but later this year it should allow seamless migration from mod_perl 1 to 2 behind the Factory::Handler interface.
 
 =item L<Class::DBI::Factory::Exception>
 
-Pervasive but fairly basic exception-handling routines for CDF-based applications based on Apache return codes. CDF::Handler uses try/catch for everything, and most of the other classes here will throw a CDF::Exception on error, unless told not to. See C<fail()>, below.
+Pervasive but fairly simple exception-handling routines for CDF-based applications based on Apache return codes. CDF::Handler uses try/catch for everything, and most of the other classes here will throw a CDF::Exception on error. See C<fail()>, below.
   
 =item L<Class::DBI::Factory::List>
 
@@ -120,7 +163,7 @@ A fairly comprehensive builder and paginater of lists. It's iterator-based, so s
   
 =item L<Class::DBI::Factory::Ghost>
 
-'Ghost' objects are cdbi prototypes: each one is associated with a data class but doesn't belong to it. The ghost object will act like the cdbi object in most simple ways: column values can be set and relationships defined, but without any effect on the database. I find this useful before the creation of an object (when populating forms) and after its deletion (for displaying confirmation page and deciding what next), but some people frown on such laziness. See C<ghost_object> and C<ghost_from>, below.
+'Ghost' objects are cdbi prototypes: each one is associated with a data class but doesn't belong to it. The ghost object will act like the cdbi object in most simple ways: column values can be set and relationships created, but without any effect on the database. I find this useful before the creation of an object (when populating forms) and after its deletion (for displaying confirmation page and deciding what next), but some people frown on such laziness. See C<ghost_object> and C<ghost_from>, below.
 
 =item L<Class::DBI::Factory::Mailer>
 
@@ -128,19 +171,23 @@ This is a simple interface to Email::Send: it can send messages raw or use the f
 
 =back
 
-None of these modules is loaded unless you make a call that requires it, and all of them are easily replaced with your own subclass or alternative module.
+None of these modules is loaded unless you make a call that requires it, and all of them are easily replaced with your own subclass or alternative module. They all have the same sort of endless POD as this one :)
 
 =head2 PERSISTENCE AND CONCURRENCY
 
-The factory object will do as little work and load as little machinery as possible, but it's still a relatively expensive thing to build. Fortunately, you should hardly ever have to build one: it's designed to stay in memory, responding to calls from much lighter, briefer Handler objects constructed to deal with each incoming request. The normal sequence goes like this:
+The factory object by itself is a fairly lean and simple thing. Once it has loaded your data classes it should add very little overhead. It is designed to load its helpers only when you do something that requires them, and until you do it should be only a little bit slower or bulkier than working with Class::DBI directly.
+
+Constructing a factory object can take a little while, though: it has to load all your data classes, establish database connections, and if you're using TT it has to create its Template object. It's possible to do all that in the course of a CGI request, but really not advisable. That's why the factory comes with all its associated mod_perl machinery. The factory object is designed to stay in memory, holding its database connection, template object and data stores in readiness for the next request.
+
+CDF::Handler objects are lightweight and short-lived: a new one is constructed to deal with every incoming request. They can be be quick and simple because it's the factory that does all the work. The normal sequence goes like this:
 
 =over
 
 =item 1. Apache directs an incoming request to mod_perl
 
-=item 2. Mod_perl creates a new Handler object to deal with the request.
+=item 2. mod_perl causese the creation of a new Handler object to deal with the request.
 
-=item 3. Handler object calls up an existing Factory object to access its database, configuration, template-processing machinery and the other centralised resources needed to deal with the request.
+=item 3. Handler object uses an existing Factory object for session-management, database access, configuration, template-processing machinery and the other resources needed to deal with the request.
 
 =item 4. Handler object returns output to Apache and is destroyed.
 
@@ -150,15 +197,15 @@ The factory object will do as little work and load as little machinery as possib
 
 This is all made more useful by the fact that each factory is stored with a distinct id. You can keep several factories active in memory at once, each with a different configuration object and therefore its own cache of database handles, connection parameters, template paths and so on. 
 
-Because the data classes have been bullied into asking the factory for database access, this means that you can use the same set of data classes in as many sites as you like without any bother.
+Because the data classes' normal database-access methods have been replaced with factory calls, this means that you can use the same set of data classes in as many sites as you like. Each time they ask for database access, the factory object will give them the right database for the current site.
 
-The factories don't really 'sleep', of course. They're rather mundanely held in a class-data hash in Class::DBI::Factory. When a handler (or data class, or other script) calls CDF->instance to get its factory object, the instance method will consult its input and environment, work out a factory id and return the factory it's holding against that hash key. If no such factory exists, it will be created, and then left available for future requests.
+The factories don't really 'sleep', of course. They're held in a class-data hash in Class::DBI::Factory. When a handler (or data class, or other script) calls CDF->instance to get its factory object, the instance method will consult its input and environment, work out a factory id and return the factory it's holding against that hash key. If no such factory exists, it will be created, and then left available for future requests.
 
-In most cases, the 'id' associated with the factory will be the name of a website. In that case, all you have to do is include an $ENV{_SITE_ID} in Apache's virtualhost definition:
+In most cases, the 'id' associated with the factory will be the name of a website. If you want, you can specify an $ENV{_SITE_TITLE} in Apache's virtualhost definition:
 
-    PerlSetEnv _SITE_ID = 'mysite.com'
-
-See C<CONFIGURATION> below for the rest of the virtualhost.
+    PerlSetEnv _SITE_TITLE = 'mysite.com'
+    
+But CDF will fall back on the $ENV{SITE_NAME} that Apache defines for each virtualhost and which will contain the name given to its ServerName directive.
 
 The same mechanism can be adapted any other situation where you want to keep one or more factory objects handy without having to pass them round all the time. The factory id can be specified directly:
 
@@ -166,23 +213,19 @@ The same mechanism can be adapted any other situation where you want to keep one
 
 or based on any environment variable you specify, such as:
 
-  $Class::DBI::Factory::factory_id_from = 'SITE_NAME';
-  
-which will get whatever was defined in Apache's ServerName directive, and
-
   $Class::DBI::Factory::factory_id_from = 'USER';
 
-will keep one factory per user. Note changing $factory_id_from has universal effect within the current namespace.
+which will keep one factory per user. Note that changing $factory_id_from has universal effect within the current namespace.
 
-If no id can be retrieved from anywhere to single out a particular factory, then CDF will return the same singleton factory object on every call to instance(). This is often a useful shortcut, but if you don't like it you can always call C<new(blah)> and get an entirely new factory object instead.
+If no id can be retrieved from anywhere to single out a particular factory, then CDF will return the same singleton factory object on every call to instance(). This is often a useful shortcut, but if you don't like it you can always call C<instance(blah)> and get an entirely new factory object instead.
   
 =head2 MANAGED CLASSES
 
-Each factory gathers up a set of what I've been calling 'data classes': that's your standard Class::DBI subclass with columns and relationships and whatnot. The set of classes is defined either by including a number of 'class' parameters in the configuration file(s) for each site, or by calling 
+Each factory gathers up a set of what I've been calling 'data classes': that's your standard Class::DBI sub(sub)class with columns and relationships and whatnot. The set of classes is defined either by including a number of 'class' parameters in the configuration file(s) for each site, or by calling 
 
   $factory->use_classes( list of names );
 
-directly. Or both. The factory will ask each class for its moniker, along with a few other bits of useful information, then it will drop in a couple of methods that force the class to use the factory for database access. The result is as if you had added this in your base data class:
+directly. Or both. The factory will ask each class for its moniker, along with a few other bits of optional but useful information, then it will drop in two methods that force the class to use the factory for database access. The result is as if you had added this in your base data class:
 
   sub _factory { Class::DBI::Factory->instance; }
   sub db_Main { shift->_factory->dbh; }
@@ -191,12 +234,13 @@ and that should be all that's required to get your application hooked up to the 
 
   sub config { shift->_factory->config; }
   sub debug { shift->_factory->debug(@_); }
-  sub report { shift->_factory->report(@_); }
   sub send_message { shift->_factory->send_message(@_); }
 
-...but I don't want to trample on anyone's columns, so I'll leave that up to you.
+...but I don't want to trample on anyone's columns more than I already have, so I'll leave that up to you.
 
-Note Class::DBI will follow relationships in the usual way, require()ing the foreign class and hooking it up. You have to declare all those classes in the factory configuration if you want it to provide access to them, or them to have access to it. If you miss out a class in the configuration but mention it in a has_many relationship, the barriers between your sites will break down and bad strangeness will result.
+Note that Class::DBI will follow relationships in the usual way, require()ing the foreign class and hooking it up. You still have to declare all those classes in the factory configuration if you want the factory to provide access to them, or them to have access to it. 
+
+WARNING: If you miss out a class in the configuration but mention it in a has_many relationship, then that class will not be using the factory for its data access. This won't work, of course, and may mean that the barriers between your sites break down and cause bad strangeness.
 
 =head1 FACTORY INTERFACE
 
@@ -216,21 +260,25 @@ and foo() is in the permitted set of methods, it should just work. If $moniker d
   
 =head2 CONFIGURATION
 
-CDF will look for two configuration files: a global server config and a local site config. You can supply the addresses of these files either by passing them to the constructor or filling in a couple of environment variables:
+CDF is commonly used with at least two configuration files: a global server config and a local site config, but you can supply any number of configuration files to be read at construction time:
 
-  my $factory = Class::DBI::Factory->new('/global/config.file', '/local/config.file');
+  my $factory = Class::DBI::Factory->new(
+  	'/global/config.file',
+  	'/local/config.file',
+    ...
+  );
   
-  #or 
+You can also make the factory read one or two configuration files by filling these two environment variables:
   
   $ENV{_CDF_CONFIG} = '/global/config.file';
   $ENV{_CDF_SITE_CONFIG} = '/local/config.file';
   my $factory = Class::DBI::Factory->new;
 
-There is no functional difference between these files, except the order in which they are read, so if there's only one file you can put it in either position. 
+This can also be done with PerlSetEnv, of course. There is no functional difference between configuration files, except in that they are read in a certain order and later declarations may supercede earlier.
 
-Here's an example of a simple configuration file:
+The work here is actually done by L<Class::DBI::Factory::Config>. Here's an example of a more practical configuration than the minimal ones above:
 
-  db_type = 'SQLite2'
+  db_type = 'SQLite'
   db_name = '/home/cdfdemo/data/cdfdemo.db'
 
   site_url = 'www.myrecords.com'
@@ -245,56 +293,43 @@ Here's an example of a simple configuration file:
 
   debug_level = 4
   mailer = 'Qmail'
-  default_template = 'holder.html'
+  master_template = 'holder.html'
   default_view = 'front'
 
-All of which should be self-explanatory. The config object is available to templates and data classes too, so there is no limit to the sort of information you might want to include there.
+The config object is available to templates and data classes too, so there is no limit to the sort of information you might want to include there:
 
-There's a sample application included with this distribution, using a configuration much like this one. It isn't big or clever, but it shows the basic principles at work and you might even be able to use it as a starting point. It uses SQLite and TT, and should be very easy to set up provided you have a mod_perl-enabled Apache around. It's in C<./demo> and comes with a dim but enthusiastic installer and some B<very> basic documentation.
+  form_box_width = '360px'
+  html_email_allowed = 0
+  show_document_count = 1
+  ...
+
+There's a sample application included with this distribution, using a configuration much like this one. It isn't big or clever, but it shows the basic principles at work and you might even be able to use it as a starting point. It uses SQLite and TT2, and should be very easy to set up provided you have a mod_perl-enabled Apache around. It's in C<./cdfdemo> and comes with a dim but enthusiastic installer and some B<very> basic documentation.
 
 =head1 CONSTRUCTION METHODS
 
-In which a factory is built according to the instructions in the one or more configuration files defined above:
+In which a factory is built according to the instructions in the one or more configuration files described above.
 
-=head2 new()
+=head2 new( @config_files )
 
-This is the main constructor:
+This is now just a synonym for instance(). To maintain the old interface, it doesn't expect a factory id and relies on instance() to detect one. Unless you take  steps to make sure that a site id can be discovered, this will mean that new() is a singleton constructor.
 
-  my $factory = Class::DBI::Factory->new( 
-    $global_config_file, 
-    $site_config_file 
-  );
-
-Note that configuration files and data classes are not loaded until they're needed, so the raw factory object returned by new() is still empty. The _load_classes() and _build_config() calls are deferred for as long as possible.
+WARNING: If you want to use two factories with distinct configurations in the same script, you will need to construct them by calling C<instance(foo, ...)> and C<instance(bar, ...)>. Calling new() twice with different config files won't work because the second factory will overwrite the first in the internal store.
 
 =cut
 
 sub new {
-	my $class = shift;
-    my ($global_config_file, $site_config_file) = @_;
-	my $self = bless {
-		_timestamp => scalar time,
-		_log => [],
-		_packages => [],
-		_classes => [],
-		_sorted_classes => [],
-		_title => {},
-		_plural => {},
-		_description => {},
-		_gcf => $global_config_file || undef,
-		_scf => $site_config_file || undef,
-	}, $class;
-	return $self;
+	return shift->instance(undef, @_);
 }
 
-=head2 instance()
+=head2 instance( $tag, @config_files )
 
-Returns the factory corresponding to the supplied site id. If no id is supplied then C<site_id> is called, which by default will look for C<$ENV{'_SITE_TITLE'}>. If that doesn't work, we will attempt to use Apache's C<$ENV{SITE_NAME}>.
+Returns the factory corresponding to the supplied or discovered site id. If no such factory exists, it is created and stored.
 
-If no factory exists for the relevant tag, one will be constructed and stored. Any parameters passed to the instance method after the initial site identifier will be passed on to C<new> if it is called (but parameters other than the site tag will not have any effect if the tag successfully identifies a factory and no construction is required).
+If no id is supplied then C<site_id> is called, which by default will look for C<$ENV{_SITE_TITLE}>. If that doesn't work, we will attempt to use Apache's C<$ENV{SITE_NAME}>. If no site id is available from any source then a singleton factory object will be returned to all requests.
 
-If no site id is available from any source then a singleton factory object will be returned to all requests.
+If you supply a list of configuration files to instance(), they will be used when a factory object is constructed. They will have no effect on an existing factory object.
 
+  my $factory = Class::DBI::Factory->new(); 
   my $factory = Class::DBI::Factory->instance(); 
   # will use environment variables for site id and configuration file
     
@@ -303,7 +338,10 @@ If no site id is available from any source then a singleton factory object will 
   my $factory = Class::DBI::Factory->instance(
     $site_id,
     $global_config_file, 
-    $site_config_file 
+    $per_site_package_file,
+    $per_site_config_file,
+    $per_user_config_file,
+    $per_day_config_file...
   );
 
 =cut
@@ -313,10 +351,21 @@ sub instance {
 	my $tag = shift || $class->site_id || $ENV{SITE_NAME} || '__singleton';
 	return $_factories->{$tag} if $_factories->{$tag};
 	
-	$class->debug(1, "Creating new CDF instance for '$tag'");
-    $_factories->{$tag} = $class->new(@_);
-    $_factories->{$tag}->{_site} = $tag;
-    return $_factories->{$tag};
+	$class->debug(1, "Creating new CDF instance for '$tag'", 'factory');
+	my $self = bless {
+		_timestamp => scalar time,
+		_log => [],
+		_packages => [],
+		_classes => [],
+		_sorted_classes => [],
+		_title => {},
+		_plural => {},
+		_description => {},
+	}, $class;
+	$self->{_config_files} = \@_ if @_;
+    $self->{_site} = $tag;
+    $_factories->{$tag} = $self;
+    return $self;
 }
 
 =head2 factory_id_from()
@@ -333,69 +382,11 @@ sub factory_id_from {
     return $factory_id_from;
 }
 
-sub site_id { $ENV{$factory_id_from} }
-
-=head1 CONFIGURATION METHODS
-
-There used to be a lot of clutter here, but most of it has been stripped out. CDF now looks for two configuration files: a global file, whose address is given by C<$ENV{_CDF_CONFIG}>, and a site configuration file whose address is given by C<$ENV{_CDF_SITE_CONFIG}>. Either file can be skipped (and will be, silently, if it's not found). There is no practical difference between the two files, and instructions can be moved between them or either omitted.
-
-=head2 global_config_file() site_config_file()
-
-Mutators for the respective configuration file addresses.
-
-=cut
-
-sub global_config_file { 
-    my $self = shift;
-    return $self->{_gcf} = $_[0] if $_[0];
-    return $self->{_gcf} ||= _if_file_exists($ENV{'_CDF_CONFIG'});
-}
-
-sub site_config_file { 
-    my $self = shift;
-    return $self->{_scf} = $_[0] if $_[0];
-    return $self->{_scf} ||= _if_file_exists($ENV{'_CDF_SITE_CONFIG'});
-}
-
-sub _if_file_exists {
-    my $f = shift;
-    $f =~ s/\/+/\//g;
-    return $f if -e $f && -f _ && -r _;
-    return;
-}
-
-=head2 _build_config()
-
-Loads the configuration class and reads all the configuration files it can find into a single configuration object, which it returns (presumably to the constructor).
+sub site_id {$ENV{ shift->factory_id_from }}
 
 =head2 config_class()
 
 Should return the Full::Class::Name that will be used to handle factory configuration. Defaults to L<Class::DBI::Factory::Config>. 
-
-If you change this, you will almost certainly want to override _build_config too.
-
-=cut
-
-sub config_class { "Class::DBI::Factory::Config" }
-
-sub _build_config {
-	my ($class, $global_config_file, $site_config_file) = @_;
-	
-	$global_config_file ||= $class->global_config_file;
-	$site_config_file ||= $class->site_config_file;
-
-    $class->_require_class( $class->config_class );
-	my $config = $class->config_class->new;
-	return $config unless $global_config_file || $site_config_file;
-
-	$config->file($global_config_file) if $global_config_file;
-	$config->file($site_config_file) if $site_config_file;
-	$config->file( $_ ) for @{ $config->include_file };
-	return $config;
-}
-
-# refresh_config has been moved to the Handler class where it can be triggered once per request, which removes the need for all that timekeeping.
-# if you're not using the handler, you can always call $config->refresh at some point to check that you're up to date: the change should be global.
 
 =head2 config()
 
@@ -403,18 +394,32 @@ Returns the configuration object which the factory is using, with which any sett
 
 If you're using L<Class::DBI::Factory::Config>, then the config object is just a thinly-wrapped L<AppConfig> object.
 
+Note that no configuration is read or built until you call config(). The first call to this method will cause the factory to load Class::DBI::Factory::Config and thus AppConfig and read whatever configuration files have been specified.
+
+=cut
+
+sub config_class { "Class::DBI::Factory::Config" }
+
+sub config {
+	my ($self, $parameter) = @_;
+	unless ($self->{_config}) {
+        $self->_require_class( $self->config_class );
+        my @cf = $self->{_config_files} ? @{ $self->{_config_files} } : ($ENV{_CDF_CONFIG}, $ENV{_CDF_SITE_CONFIG});
+    	$self->{_config} = $self->config_class->new(@cf);
+	}
+	return $self->{_config} unless $parameter;
+	return $self->{_config}->get($parameter);
+}
+
+sub config_files {
+
+}
+
 =head2 id()
 
 Returns the site tag by which this factory would be retrieved. This ought to be the same as C<site_id>, which looks in the host configuration, unless something has gone horribly wrong.
 
 =cut
-
-sub config {
-	my ($self, $parameter) = @_;
-	$self->{_config} ||= $self->_build_config;
-	return $self->{_config} unless $parameter;
-	return $self->{_config}->get($parameter);
-}
 
 sub id { shift->{_site} }
 
@@ -432,17 +437,23 @@ This has to be done first, before any factory method is called that depends on t
 
 sub use_classes {
     my ($self, @classes) = @_;
+    $self->fail(-text => "Can't call use_classes() after classes already loaded") if $self->{_loaded};
     $self->config->set(class => $_) for @classes;
-#    $self->_load_classes;
 }
+
+=head2 init()
+
+Initialises the factory: loads data classes, reads configuration files, and so on. When constructed the factory is vacant: this method populates it with classes. init() is called for you before any factory operation that needs it, so you very rarely need to invoke it directly. There are a few situations, though: if you want to access a data class directly before you have done anything else with the factory, for example. This is rare outside a test script.
+
+init() just calls _load_classes(), but this may change in future. Use init().
 
 =head2 _load_classes()
 
-Each class that has been specified in a configuration file somewhere (the list is retrieved by calling C<_class_names>, if you felt like changing it) is C<require>d here, in the usual eval-and-check way, and its moniker stored as a retrieval key. 
+Each class that has been specified in the configuration (the list is retrieved by calling C<_class_names>, if you felt like changing it in devious ways) is C<require>d here, in the usual eval-and-check way, and its moniker stored as a retrieval key. 
 
 Normally this is done only once, and before anything else happens, but if you call C<_load_classes(1)> (or with any other true value), you force it to require everything again. This doesn't unload the already required classes, so you can't, currently, use this to change the list of managed classes.
 
-This is mostly accomplished by way of calls to the following methods:
+This is mostly accomplished by calls to the following methods:
 
 =head2 pre_require()
 
@@ -468,18 +479,28 @@ This method is called to store information about the class in the factory object
 
 =back
 
-Only the moniker is actually required and the standard cdbi moniker mechanism provides a fallback for that, so you can safely ignore all this unless it seems useful.
+Only the moniker is actually required and the standard cdbi moniker mechanism will normally provide that, so you can safely ignore all this unless it seems useful.
 
 =head2 post_require
 
-This is called for each class after it has been loaded and assimilated, and is supplied with the moniker and full class name. Here it is used to place C<factory()> and C<db_Main()> methods in each data class: you may want to override it to prevent or extend this behaviour.
+This is called for each class after it has been loaded and assimilated, and is supplied with the moniker and full class name. 
+
+Here it is used to place C<factory()> and C<db_Main()> methods in each data class. That work is actually done by:
+
+=head2 create_factory_accessor
+
+Which you can override or ignore. If your cdbi subclass already has a db_Main method that you want to keep, just override post_require().
 	
 =cut
+
+sub init {
+	return shift->_load_classes(@_);
+}
 
 sub _load_classes {
 	my ($self, $reload) = @_;
 	return if $self->{_loaded} && ! $reload;
-	$self->debug(3, "loading data classes");
+	$self->debug(3, "loading data classes", 'factory');
 	$self->pre_require();
 	$self->load_class($_) for @{ $self->_class_names };
 	$self->{_loaded} = 1;
@@ -489,19 +510,18 @@ sub _load_classes {
 sub load_class {
 	my ($self, $class) = @_;
 	return unless $class;
-	$self->debug(5, "loading class '$class'");
+	return $self->fail({ -text => "load_class: bad class name: '$class'" }) unless $class !~ /[^\w:]/;
+	$self->debug(5, "loading class '$class'", 'factory');
 	$self->_require_class($class);
-	my $moniker = $self->assimilate_class($class);
-	$self->post_require($moniker, $class);
+	$self->assimilate_class($class);
+	$self->post_require($class);
 }
 
 sub _require_class {
-	my ($self, $class, @import) = @_;
+	my ($self, $class) = @_;
+	return if (eval "defined %${class}::");
 	eval "require $class";
-	eval "import $class @import" if @import;
-	return $self->fail({
-	   -text => "failed to load class '$class': $@",
-	}) if $@;
+	return $self->fail({ -text => "failed to load class '$class': $@" }) if $@;
 }
 
 sub assimilate_class {
@@ -513,18 +533,22 @@ sub assimilate_class {
 	$self->{_title}->{$moniker} = $class->class_title;
 	$self->{_plural}->{$moniker} = $class->class_plural;
 	$self->{_description}->{$moniker} = $class->class_description;
-	return $moniker;
 }
 
 sub pre_require { return }
 
 sub post_require { 
-    my ($self, $moniker, $class) = @_;
-    no strict ('refs');
+    my ($self, $class) = @_;
+	$self->create_factory_accessor($class);
+}
+
+sub create_factory_accessor {
+    my ($self, $class) = @_;
     my $factory_class = ref $self;
-    *{"$class\::_factory"} = sub { 
-        return $factory_class->instance;
-    };
+    no strict ('refs');
+	*{"$class\::_factory"} = sub { 
+		return $factory_class->instance;
+	};
     *{"$class\::db_Main"} = sub { 
         return shift->_factory->dbh;
     };
@@ -533,15 +557,15 @@ sub post_require {
 sub AUTOLOAD {
 	my $self = shift;
 	my $moniker = shift;
-	$self->_load_classes;
+	$self->init;
 	my $method_name = $AUTOLOAD;
 	$method_name =~ s/.*://;
 	my ($package, $filename, $line) = caller;
-    $self->debug(4, "CDF->$method_name called at $package line $line");
+    $self->debug(4, "CDF->$method_name called at $package line $line", 'factory');
     return if $method_name eq 'DESTROY';
 
 	my $class = $self->class_name($moniker);
-	$self->debug(1, "bad AUTOLOAD call: no class from moniker '$moniker'") unless $class;
+	$self->debug(1, "bad AUTOLOAD call: no class from moniker '$moniker'", 'factory') unless $class;
   	return unless $class;
 	
 	my $method = $self->permitted_methods($method_name);
@@ -549,13 +573,13 @@ sub AUTOLOAD {
 	   -text => "Class::DBI::Factory::AUTOLOAD is trying to call a '$method_name' method that is not recognised",
 	}) unless $method;
 	
-	$self->debug(5, "AUTOLOAD: $class->$method(" . join(', ', @_) . ");");
+	$self->debug(3, "AUTOLOAD: $class->$method(" . join(', ', @_) . ");", 'factory');
 	return wantarray ? $class->$method(@_) : scalar( $class->$method(@_) );
 }
 
 =head2 permitted_methods()
 
-This method defines a core set of method calls that the factory will accept and pass on to data classes: the Class::DBI API, basically, along with the extensions provided by Class::DBI::mysql and a few synonyms to cover old changes (has_column == find_column, for example) or simplify template code. 
+This method defines a core set of method calls that the factory will accept and pass on to data classes: it's the Class::DBI interface, basically, along with the extensions provided by Class::DBI::mysql and a few synonyms to cover old changes (has_column == find_column, for example) or simplify template code. 
 
 It does this by returning a hash of 
 
@@ -632,7 +656,7 @@ returns an array reference containing the list of monikers. This is populated by
 
 =head2 _class_names()
 
-returns an array reference containing the list of full class names: this is taken straight from the configuration file and may include classes that have failed to load, since it is from this list that we try to C<require> the classes.
+returns an array reference containing the list of full class names.
 
 =head2 class_name()
 
@@ -646,7 +670,7 @@ Returns true if the supplied value is a valid moniker.
 
 sub classes {
 	my $self = shift;
-	$self->_load_classes;
+	$self->init;
 	return $self->{_classes};
 }
 
@@ -656,14 +680,14 @@ sub _class_names {
 
 sub class_name {
 	my ($self, $moniker) = @_;
-	$self->_load_classes;
+	$self->init;
 	return $self->{_class_name}->{$moniker};
 }
 
 sub has_class {
 	my ($self, $moniker) = @_;
-	$self->_load_classes;
-	return 1 if exists $self->{_class_name}->{$moniker};
+	$self->init;
+	return exists $self->{_class_name}->{$moniker};
 }
 
 =head2 relationships( $moniker, $type )
@@ -674,6 +698,10 @@ The relationship type defaults to 'has_a', and we return a hash of method names 
   $factory->relationships( 'album' );
 
 in the supplied demo application would return ('genre', 'artist').
+
+=head2 relationship_exists( $moniker, $relationship )
+
+Returns true if the class designated by $moniker has a has_many relationship of the supplied name. 
 
 =cut
 
@@ -687,9 +715,16 @@ sub relationships {
     return \%relations;
 }
 
+sub relationship_exists {
+    my ($self, $moniker, $relationship) = @_;
+    return unless $moniker && $relationship;
+    return unless $self->meta_info($moniker, 'has_many', $relationship);
+    return 1;
+}
+
 =head2 moniker_from_class()
 
-Given a full class name, returns the moniker. This is hardly ever needed.
+Given a full class name, returns the moniker. This is rarely used directly, since you would normally just call $class->moniker, but it is wrapped in an eval and therefore safe in the case of an uncertain value for $class.
 
 =cut
 
@@ -700,19 +735,27 @@ sub moniker_from_class {
 	eval {
 	   $moniker = $class->moniker;
     };
+    $self->debug(3, "bad moniker_from_class call: '$class' gives error $@", 'factory') if $@;
     return $moniker;
 }
 
+=head2 moniker_from_relationship()
+
+Given a moniker and a has_many relationship name, returns the moniker of the foreign class. This is useful if, say, you want to count the number of related objects in SQL rather than perl: You can turn the relationship name into a class name here and call count_where on that.
+
+=cut
+
+sub moniker_from_relationship {
+	my ($self, $moniker, $relationship) = @_;
+	return unless $moniker && $relationship;
+    my $meta_info = $self->meta_info($moniker, 'has_many', $relationship);
+    $self->debug(3, "moniker_from_relationship: $moniker->$relationship gives: " . Dumper($meta_info), 'factory');
+    return $self->moniker_from_class($meta_info->{foreign_class});
+}
 
 =head2 inflate_if_possible()
 
 Accepts a column name => value pair and inflates the value, if possible, into a member of the class monikered by the column name.
-
-=head2 translate_to_moniker()
-
-Some column names don't match the moniker of the objects they contain: perhaps because there is more than one column containing that type, or perhaps just for readability. get_moniker maps the column name onto the moniker. 
-
-The method defined here (which expects to be overridden), strips _id off the end of a column name, and maps 'parent' onto the moniker of the present class.
 
 =cut
 
@@ -726,46 +769,79 @@ sub inflate_if_possible {
 	return $self->retrieve( $moniker, $content ) || $content;
 }
 
+=head2 translate_to_moniker( column name, moniker of calling class )
+
+Some column names don't match the moniker of the objects they contain: perhaps because there is more than one column containing that type, or perhaps just for readability. get_moniker maps the column name onto the moniker. 
+
+The method defined here (which expects to be overridden), strips _id off the end of a column name, and maps 'parent' onto the moniker of the present class.
+
+=cut
+
 sub translate_to_moniker {
 	my ($self, $tag, $parent_moniker) = @_;
+	my $aliases = $self->moniker_aliases || {};
     return $parent_moniker if $tag eq 'parent';
+    return $aliases->{$tag} if $aliases->{$tag};
     $tag =~ s/_id$//;
     return $tag;
 }
 
-sub moniker_aliases {
-    # hm. should allow a list to be specified more easily. hey ho.
-}
+=head2 moniker_aliases( )
 
-=head2 ghost_class()
+Returns a hashref of column_name => moniker that is used by translate_to_moniker to turn column names into monikers for inflation. This is only of relevance to $factory->inflate_if_possible, which is called from a few places (like Handler->param) but doesn't have any effect on the normal cdbi inflation mechanism.
 
-Override to use a ghost class other than Class::DBI::Factory::Ghost (eg if you've subclassed it).
+The hashref is empty by default: this method expects to be subclassed.
 
 =cut
 
-sub ghost_class { 'Class::DBI::Factory::Ghost' }
+sub moniker_aliases {{}}
+
+=head2 ghost_class()
+
+Sets and/or returns the Full::Class::Name that will be used to handle paginated lists. Checks the value of $Class::DBI::Factory::list_class then defaults to L<Class::DBI::Factory::List>.
+
+There are several methods here of this form, used to determine the class that should be used to perform some function or other. They include list_class, mailer_class, iterator_class and ghost_class. The logic is the same in each case;
+
+=over
+=item the value supplied
+=item the value previously supplied or discovered
+=item the class-wide default, if set
+=item the hard default
+=back
+
+In the case of ghost_class, the class-wide default is held in $Class::DBI::Factory::ghost_class and can be set at any time. The hard default if no other value is discovered is 'Class::DBI::Factory::Ghost', which is the standard helper that comes with CDF. The other methods work in the same way but with predictably different variable names.
+
+=cut
+
+sub ghost_class { 
+	my $self = shift;
+	return $self->{_ghost_class} = $_[0] if @_;
+	return $self->{_ghost_class} if $self->{_ghost_class};
+	return $self->{_ghost_class} = $ghost_class || 'Class::DBI::Factory::Ghost';
+}
 
 =head2 ghost_object( moniker, columns_hashref )
 
-Creates and returns an object of the ghost class, which is just a data-holder able to mimic a cdbi object well enough to populate a template, but no more.
+Creates and returns an object of the ghost class, which is just a data-holder able to mimic a cdbi object well enough to populate a template, but no more. A hashref of column=>value should be supplied and will be used to construct the ghost.
 
 =cut
 
 sub ghost_object {
-    my ($self, $type, $columns) = @_;
+    my ($self, $moniker, $columns) = @_;
     my ($package, $filename, $line) = caller;
-    $self->debug(3, 'ghost_object(' . join(',',@_) . ") at $package line $line");
+    $self->debug(4, 'ghost_object(' . join(',',@_) . ") called at $package line $line", 'factory');
     $self->_require_class( $self->ghost_class );
-    $columns->{type} = $type;
+    $columns ||= {};
+    $columns->{moniker} = $moniker;
+    $columns->{date} = $self->now;
     return $self->ghost_class->new($columns);
 }
 
 =head2 ghost_from( data_object )
 
-Returns a ghost object based on the class and properties of the supplied real object. 
-Useful to keep a record of an object about to be deleted, for example. 
+Returns a ghost object based on the class and properties of the supplied real object. This is useful to keep a record of an object about to be deleted, for example. 
 
-(In which case the deleted object can be reconsituted with a call to C<$ghost-\>make>. You will lose anything that was removed in a cascading delete, though. This is not nearly good enough to serve as an undo mechanism unless you exted the ghost to ghost all its relatives too).
+(In which case the deleted object can be reconsituted with a call to C<$ghost-\>make>. You will lose anything that was removed in a cascading delete, though. This is not nearly good enough to serve as an undo mechanism unless you extend the ghost to ghost all its relatives too).
 
 =cut
 
@@ -782,7 +858,13 @@ each return the corresponding value defined in the data class, as in:
   Which of these [% factory.plural('track') %] 
   has not been covered by a boy band?
   
-We only have these values if you add the corresponding class_title, class_plural and class_description methods to your data classes.
+We only have these values if you add the corresponding class_title, class_plural and class_description methods to your data classes. I normally do this:
+
+  package My::Album
+  sub moniker { 'album' }
+  sub class_title { 'Album' }
+  sub class_plural { 'Albums' }
+  sub class_description { 'An album (from Latin albus "white", "blank", relating to a blank book in which something can be inserted) is a packaged collection of related things.' }
 
 =cut
 
@@ -804,24 +886,9 @@ sub description {
 	return $self->{_description};
 }
 
-=head1 GOODS AND SERVICES
+=head1 USEFUL SERVICES
 
 The rest of the factory's functions are designed to provide support to L<Class::DBI> applications. The factory is an efficient place to store widely used components like database handles and template engines, pagers, searches and lists, and to keep useful tools like C<escape> and C<unescape>, so that's what we do:
-
-=head2 set_db()
-
-Can be used to set database connection values if for some reason you don't want them in a config file. Expects to receive a hashref of parameters. The tests for CDF use this approach, if you want a look.
-
-  $factory->set_db({
-    db_type => '...',         # defaults to 'SQLite'
-    db_host => '...',         # in which case no other parameters
-    db_port => '...',         # are needed except a path/to/file
-    db_name => '...',         # in db_name
-    db_username => '...',
-    db_password => '...',
-  });
- 
-Defaults can be supplied by C<Class::DBI::Config::default_values>, which is called early in the configuration process.
 
 =head2 dsn()
 
@@ -843,12 +910,22 @@ Should do it, except that you will probably have subclassed CDF, and should use 
 
 You can safely ignore all this unless your data clases need access to configuration information, template handler, unrelated other data classes or some other factory mechanism.
 
-=cut
+=head2 set_db()
 
-sub set_db {
-	my ($self, $parameters) = @_;
-	$self->config->set($_, $parameters->{$_}) for grep { exists $parameters->{$_} } qw(db_type db_name db_username db_password db_port db_host db_dsn);
-}
+Can be used to set database connection values if for some reason you don't want them in a config file. Expects to receive a hashref of parameters. The tests for CDF use this approach, if you want a look.
+
+  $factory->set_db({
+    db_type => '...',         # defaults to 'SQLite'
+    db_host => '...',         # in which case no other parameters
+    db_port => '...',         # are needed except a path/to/file
+    db_name => '...',         # in db_name
+    db_username => '...',
+    db_password => '...',
+  });
+ 
+Defaults can be supplied by C<Class::DBI::Config::default_values>, which is called early in the configuration process.
+
+=cut
 
 sub dsn {
 	my $self = shift;
@@ -866,11 +943,16 @@ sub dsn {
 sub dbh {
     my $self = shift;
     my $dbh = &{ $self->_dbc() };
-    $self->debug(0, 'No database handle returned. Please check database account.') unless $dbh;
+    $self->debug(0, 'No database handle returned. Please check database account.', 'factory') unless $dbh;
     if ($self->config->get('dbi_trace')) {
         $dbh->trace( $self->config->get('dbi_trace'), $self->config->get('dbi_trace_file') || undef );
     }
     return $dbh;
+}
+
+sub set_db {
+	my ($self, $parameters) = @_;
+	$self->config->set($_, $parameters->{$_}) for grep { exists $parameters->{$_} } qw(db_type db_name db_username db_password db_port db_host db_dsn);
 }
 
 =head2 _dbc()
@@ -899,7 +981,7 @@ sub _dbc {
 
 =head2 db_options()
 
-Returns the hash of attributes that will be used to create database connections. Separated out here for subclassing.
+Returns the hash of attributes that will be used to create database connections. Separated out here for subclassing. This too will change abruptly when new versions of CDBI come out.
 
 =cut 
 
@@ -921,9 +1003,16 @@ sub db_options {
 
 Returns the full name of the root class for $dbh. It is very unlikely that this will not be DBIx::ContextualFetch, but I suppose you might have subclassed that.
 
+I doubt very much that any good will come of changing this unless you do it immediately upon construction of the factory and before any database has been accessed access.
+
 =cut 
 
-sub db_rootclass { "DBIx::ContextualFetch" }
+sub db_rootclass { 
+	my $self = shift;
+	return $self->{_db_rootclass} = $_[0] if @_;
+	return $self->{_db_rootclass} if $self->{_db_rootclass};
+	return $self->{_db_rootclass} = $db_rootclass || 'DBIx::ContextualFetch';
+}
 
 =head2 tt()
 
@@ -937,12 +1026,12 @@ sub tt {
 	my $self = shift;
 	return $self->{_tt} if $self->{_tt};
 
-	$self->debug(3, 'loading Template Toolkit');
+	$self->debug(3, 'loading Template Toolkit', 'factory');
     $self->_require_class( 'Template' );
 
 	my $recursion = $self->config->get('allow_template_recursion') || '0';
     my $path = $self->config->template_path || [];
-	$self->debug(3, "recursion is '$recursion'\ntemplate path is '" . join(', ', @$path) . "'");
+	$self->debug(3, "recursion is '$recursion'\ntemplate path is '" . join(', ', @$path) . "'", 'factory');
 
 	my $tt = Template->new({ 
 		INCLUDE_PATH => $path, 
@@ -970,30 +1059,11 @@ This is separated out here so that all data classes and handlers can use the sam
 
 sub process {
 	my ($self, $template, $data, $outcome) = @_;
-	$self->debug(3, "CDF: processing template '$template'.");
+	$self->debug(3, "CDF: processing template '$template'.", 'factory');
 	return 0 if $self->tt->process($template, $data, $outcome);
 	return $self->fail({
 	   -text => $self->tt->error,
 	});
-}
-
-=head2 pager()
-
-returns a pager object for the class you specify. Like all these methods, it defers loading the pager class until you call for it.
-
-  my $pager = $factory->pager('artist');
-
-=head2 pager_class()
-
-Should return the Full::Class::Name that will be used to create pagers. Defaults to L<Class::DBI::Pager>.
-
-=cut
-
-sub pager {
-	my ($self, $moniker, $perpage, $page) = @_;
-	$perpage ||= 10;
-	$page ||= 1;
-	return $self->class_name($moniker)->pager($perpage, $page); 
 }
 
 =head2 list()
@@ -1020,11 +1090,9 @@ Which will provide display and pagination support without requiring you to jump 
 
 =head2 list_class()
 
-Should return the Full::Class::Name that will be used to handle paginated lists. Defaults to L<Class::DBI::Factory::List>.
+Sets and/or returns the Full::Class::Name that will be used to handle paginated lists. Checks the value of $Class::DBI::Factory::list_class then defaults to L<Class::DBI::Factory::List>.
 
 =cut
-
-sub list_class { "Class::DBI::Factory::List" }
 
 sub list {
 	my ($self, $moniker, %criteria) = @_;
@@ -1040,57 +1108,57 @@ sub list_from {
 	return $self->list_class->from( $iterator, $source, $param );
 }
 
+sub list_class { 
+	my $self = shift;
+	return $self->{_list_class} = $_[0] if @_;
+	return $self->{_list_class} if $self->{_list_class};
+	return $self->{_list_class} = $list_class || 'Class::DBI::Factory::List';
+}
+
 =head2 iterator_from( class, listref )
 
 Returns an iterator built around the list of supplied ids. A list of objects can also be used instead: it's not very efficient, but sometimes it's necessary.
 
 =head2 iterator_class()
 
-Should return the Full::Class::Name that will be used to construct an iterator. Defaults to L<Class::DBI::Iterator>.
+Sets and/or returns the Full::Class::Name that will be used to build iterators. Checks the value of $Class::DBI::Factory::iterator_class then defaults to L<Class::DBI::Factory::List>.
 
 =cut
 
-sub iterator_class { 'Class::DBI::Iterator' }
+sub iterator_class { 
+	my $self = shift;
+	return $self->{_iterator_class} = $_[0] if @_;
+	return $self->{_iterator_class} if $self->{_iterator_class};
+	return $self->{_iterator_class} = $iterator_class || 'Class::DBI::Iterator';
+}
 
 sub iterator_from {
     my ($self, $class, $list) = @_;
     return unless $class && $list;
-	$class->debug(3, "building iterator from list of " . scalar(@$list) . " items of class $class");
+	$class->debug(3, "building iterator from list of " . scalar(@$list) . " items of class $class", 'factory');
     return $self->iterator_class->new($class, $list);
 }
 
-=head2 throw_exceptions()
-
-A mutator sets or returns the throw_exceptions flag for this factory. If the flag is set to false, we'll mostly just die instead of throwing a more detailed exception.
-
 =head2 fail( $parameters )
 
-A general-purpose failure-handler. Usually throws a SERVER_ERROR exception with the supplied -text parameter, but if throw_exceptions returns false we'll just die instead. Parameters are passed on to the exception handler.
+A general-purpose failure-handler. Throws a SERVER_ERROR exception with the supplied -text parameter. Parameters are passed on to the exception handler. If you don't like CDF::Exception, overriding this method will almost make it go away.
 
 =cut
-
-sub throw_exceptions {
-    my $self = shift;
-    return $self->{_except} = $throw_exceptions = $_[0] if @_;
-    return $self->{_except} ||= $throw_exceptions;
-};
 
 sub fail {
     my ($self, $failure) = @_;
     my $text = $failure->{-text} || "An unspecified error has occurred!";
     die $text if delete $failure->{-fatal};
-    if ($self->throw_exceptions) {
-        throw Exception::SERVER_ERROR( %$failure );
-    } else {
-        die $text;  
-    };
+    throw Exception::SERVER_ERROR( %$failure );
 }
 
 =head1 EMAIL
 
+This is a bit tangential, but for web applications the factory is the obvious place to handle email-sending: like the template and database connections, we hold an email channel open and wait for instructions.
+
 =head2 mailer_class()
 
-Returns the full::name of the class we should call on to send email messages. Defaults to Class::DBI::Factory::Mailer.
+Sets and/or returns the Full::Class::Name that will be used to handle email. Checks the value of $Class::DBI::Factory::mailer_class then defaults to L<Class::DBI::Factory::Mailer>.
 
 =head2 mailer()
 
@@ -1098,7 +1166,12 @@ Returns an object of the mailer class. These are usual very dumb creatures with 
 
 =cut
 
-sub mailer_class { 'Class::DBI::Factory::Mailer' }
+sub mailer_class { 
+	my $self = shift;
+	return $self->{_mailer_class} = $_[0] if @_;
+	return $self->{_mailer_class} if $self->{_mailer_class};
+	return $self->{_mailer_class} = $mailer_class || 'Class::DBI::Factory::Mailer';
+}
 
 sub mailer {
 	my $self = shift;
@@ -1119,7 +1192,7 @@ Sends an email message. See L<Class::DBI::Factory::Mailer> for more about the re
     message => 'Careful now',
   });
 
-If you pass through a template parameter, the usual templating mechanism will be used to generate the message, and all the values you have supplied will be passed to the template. Otherwise, the mailer will look for a message parameter and treat that as finished message text.
+Instead of the C<message> parameter, you can pass through a template path as C<template>. The usual templating mechanism will be used to generate the message using the other values you have supplied will be passed to the template. Otherwise, the mailer will look for a message parameter and treat that as finished message text.
 
 =head2 email_admin()
 
@@ -1137,9 +1210,11 @@ sub email_admin {
 
 =head1 DEBUGGING
 
-The factory provides a general-purpose logger that prints to STDERR. Each debugging message has an importance value, and the configuration of each factory defines a threshold: if the message importance is less than the threshold, the message will be printed.
+The factory provides a general-purpose logger that prints to STDERR. Each debugging message has an importance value and optionally a set of subject tags. The configuration of each factory defines a threshold, and a set of debugging topics that we're interested in. If the message importance is less than the threshold, and there is an overlap between the debugging topics and the message tags, the message will be printed.
 
-Note that including debugging lines always incurs some small cost, since this method is called and the threshold comparison performed each time, even if the message isn't printed.
+If there are no debugging topics in the configuration, that part of the filter is omitted and all sufficiently urgent messages appear.
+
+Note that including debugging lines always incurs some small cost, since this method is called and the threshold comparison performed each time, even if the message isn't printed. For more expensive debugging operations you might want to test the value of $factory->debug_level before doing the work.
 
   $self->factory->debug_level(1);
   $self->factory->debug(2, 
@@ -1151,19 +1226,32 @@ Note that including debugging lines always incurs some small cost, since this me
 
 =head2 debug( $importance, @messages )
 
-Checks the threshold and prints the messages. Each message is prepended with a [site_id] marker, but even so nothing will make much sense if requests overlap. For debugging processes you probably want to run apache in single-process mode.
+Checks the threshold and prints the messages. Each message has prepended a [site_id] marker, but even so nothing will make much sense if requests overlap. For debugging processes you probably want to run apache in single-process mode.
 
 =cut
 
 sub debug {
-    my ($self, $level, @messages) = @_;
-    return unless @messages;
+    my ($self, $level, $message, @topics) = @_;
+    return unless $message;
     my $threshold = $self->debug_level || 0;
-    my $id = (ref $self) ? $self->id : '*';
     return if $level > $threshold;
-    my $tag = "[$id]";
-    warn map { "$tag $_\n" } @messages;
+    
+    my $debug_topics = $self->debug_topics;
+    my @relevant_topics;
+   	return unless ! $debug_topics or ! @$debug_topics or @relevant_topics = _list_overlap($debug_topics, \@topics);
+
+    my $id = (ref $self) ? $self->id : '*';
+    $id .= ": " . join(', ', @relevant_topics) if @relevant_topics;
+    warn "[$id] $message\n";
     return;
+}
+
+sub _check_debug_topics {
+    my ($self, @messagetopics) = @_;
+    my $debugtopics = $self->debug_topics;
+    return @messagetopics unless $debugtopics;
+    my %sitetopics = map { $_=> 1 } @$debugtopics;
+    return grep { $sitetopics{$_} } @messagetopics;
 }
 
 =head2 debug_level()
@@ -1200,6 +1288,14 @@ If C<debug()> is called as a class method, configuration information will not be
 
 will be used. It defaults to zero. Changing it will have global effect within the current namespace (eg all factories within a given apache process).
 
+=head2 debug_topic {
+
+Debug messages optionally come with additional parameters that associate them with one or more topics. If you supply one or more debug_topic parameters either by passing them to this method or by including one or more debug_topic parameters in the site configuration, then only messages associated with those topics will be printed.
+
+Useful possibilities include 'handler', 'input', 'templates', 'storage', 'factory', 'list', 'ghost' and 'session'.
+
+If no topic is defined then all messages of sufficent importance are printed.
+
 =cut
 
 sub debug_level {
@@ -1210,6 +1306,14 @@ sub debug_level {
     return $self->{_debug_level} = $self->config->get('debug_level') || $class_debug_level;
 }
 
+sub debug_topics {
+    my $self = shift;
+    return unless ref $self;
+    return $self->{_debug_topics} = [@_] if @_;
+    $self->{_debug_topics} ||= $self->config->get('debug_topic'); # listref
+    return $self->{_debug_topics} || [];
+}
+
 =head2 version()
 
 Returns the global C<$Class::DBI::Factory::VERSION>, so your subclass will probably want its own version method.
@@ -1218,6 +1322,19 @@ Returns the global C<$Class::DBI::Factory::VERSION>, so your subclass will proba
 
 sub version {
 	return $VERSION;
+}
+
+=head2 timestamp()
+
+Returns the timestamp (ie creation time in epoch seconds) of this factory object. Sometimes useful for debugging, especially if you're using GTopLimit or some such killer-off.
+
+The config object associated with the factory normally has its own timestamp: unlike this one, it is updated when the configuration is refreshed. Comparing them can be useful.
+
+=cut
+
+sub timestamp {
+	my $self = shift;
+	return $self->{_timestamp} if ref $self;
 }
 
 =head2 add_status_menu()
@@ -1271,8 +1388,9 @@ In serious use, Class::DBI::Factory and all its helper modules expect to be subc
   CDF::pre_require()
   CDF::post_require()
   CDF::extra_methods()
-  CDF::pager_class()
   CDF::list_class()
+  CDF::mailer_class()
+  CDF::iterator_class()
   
   CDF::Config::skeleton()
   CDF::Config::list_parameters()

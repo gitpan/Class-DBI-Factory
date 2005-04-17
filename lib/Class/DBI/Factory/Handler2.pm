@@ -1,9 +1,11 @@
 package Class::DBI::Factory::Handler;
 use strict;
 
-use Apache::Constants qw(:response);
+use Apache2;
+use Apache::Const qw(:common);
 use Apache::Request ();
 use Apache::Cookie ();
+use Apache::Upload ();
 
 use IO::File;
 use Carp ();
@@ -12,9 +14,9 @@ use List::Util qw(first max min);
 use Data::Dumper;
 
 require 5.6.0;
-use vars qw( $VERSION $factory_class );
+use vars qw( $VERSION );
 
-$VERSION = '0.94';      # mod_perl 1 only. see Handler2 for a mod_perl2 version.
+$VERSION = '0.93';      # mod_perl 2 only.
 $|++;
 
 =head1 NAME
@@ -102,7 +104,7 @@ sub build_page {
 	my $self = shift;
 	
 	$self->debug(1, "\n\n\n____________REQUEST: " . $self->full_url, 'handler');
-    $self->debug(3, "task sequence: " . join(', ', $self->task_sequence), 'handler');
+    $self->debug(3, "task sequence: " . join(', ', $self->task_sequence, 'handler'));
     my $return_code = OK;
 	
     try {
@@ -178,23 +180,11 @@ This is just a placeholder, and always returns true. It is very likely that your
 
 sub check_permission { 1 };
 
-=head3 read_input() 
+=head3 adjust_input() 
 
-Most important variables are retrieved from and stored in the input set. Calling moniker() will get or set the value of the moniker intput parameter, for example.
+Placed here as a convenience in case subclasses want to test or adjust the input set. One common tweak is to read path_info. Any changes you make here should be by way of C<set_param>: if you call moniker or id directly, for example, later steps may override your changes.
 
-So this method tries to populate those parameter slots *if they're not already filled*. 
-
-I've recently separated out the ways it tries to do that, so that they can be selectively overridden. The methods that do the work are:
-
-=head3 find_moniker() 
-
-Looks for input in the form moniker=id or moniker=all, by scanning the input parameters for monikers that the factory recognises. 
-
-=head3 translate_path_info() 
-
-Then it will examine the path information, looking for /moniker/id or /moniker/all. If it finds neither, but there is path info, we assume that the path info is a view name. This allows urls like /browse/welcome.html to pick out views.
-
-Any suffix is removed from the path info, so you can put arbitrary .somethings on the end of your urls if you like. The removed suffix can be retrieved by calling handler->suffix if you need it.
+NB. Most important variables are retrieved from the input set by the corresponding method (eg calling ->moniker) will look at the 'moniker' parameter if it finds no other value to return.
 
 =cut
 
@@ -202,52 +192,39 @@ sub read_input {
 	my $self = shift;
     $self->debug(3, "CDFH->read_input", 'handler', 'input');
 
-	$self->find_moniker;
-	$self->translate_path_info;
+	if ($self->param && ! ($self->param('id') || $self->param('moniker'))) {
+    	$self->debug(3, "input but no id or moniker parameters. looking for class monikers.", 'handler', 'input');
+    	my @monikers = @{ $self->factory->classes };
+        my $moniker = first { $self->param($_) eq 'new' } @monikers;
+        $moniker ||= first { defined $self->param($_) } @monikers;
+                   
+        if ($moniker) {
+            $self->debug(3, "found a moniker parameter: $moniker.", 'handler', 'input');
+            $self->set_param(moniker => $moniker);
+            $self->set_param(id => $self->param($moniker));
+            #$self->delete_param($moniker);
+        }
+	}
+
+	if ($self->path_info && ! ( $self->param('id') || $self->param('moniker') )) {
+    	$self->debug(3, "path info, but no id or moniker parameter. splitting pi.", 'handler', 'input');
+        my ($general, $specific) = $self->read_path_info;
+        if ($general eq 'op' && $specific) {
+            $self->set_param('op', $specific);
+        } elsif ($self->factory->has_class($general)) {
+            $self->set_param('moniker', $general);
+            $self->set_param('id', $specific) unless $general eq 'all';
+        } elsif ($general) {
+            $self->set_param('view', $general);
+        }
+    }   
+
     $self->adjust_input;
-}
-
-sub find_moniker {
-	my $self = shift;
-    return if $self->param('id') || $self->param('moniker');
-    return unless $self->param;
-
-	$self->debug(3, "CDFH->find_moniker()", 'handler', 'input');
-	my @monikers = @{ $self->factory->classes };
-	my $moniker = first { $self->param($_) eq 'new' } @monikers;
-	$moniker ||= first { defined $self->param($_) } @monikers;
-			   
-	if ($moniker) {
-		$self->debug(3, "found a moniker parameter: $moniker.", 'handler', 'input');
-		$self->set_param(moniker => $moniker);
-		my @ids = $self->param($moniker);
-		$self->set_param(id => ($#ids) ? \@ids : $ids[0]);
-	}
-}
-
-sub translate_path_info {
-	my $self = shift;
-    return if $self->param('id') || $self->param('moniker');
-    return unless $self->path_info;
-
-	$self->debug(3, "CDFH->translate_path_info().", 'handler', 'input');
-	my ($general, $specific) = $self->read_path_info;
-
-	if ($self->factory->has_class($general)) {
-		$self->set_param('moniker', $general);
-		$self->set_param('id', $specific) unless $general eq 'all';
-	} elsif ($general) {
-		$self->set_param('view', $general);
-	}
 }
 
 =head3 adjust_input( )
 
-Placeholder for a sub that will change input values immediately after read_input has populated them. 
-
-This version just turns type parameters into moniker parameters to paper over an old syntax change (when monikers were first introduced to cdbi).
-
-adjust_input() differs from find_moniker() and translate_path_info() in that it is meant to revise the input set once it has been discovered, rather than helping with its discovery. It shouldn't care how the parameter was supplied.
+Placeholder for a sub that will change input values immediately after read_input has populated them. This version just turns type parameters into moniker parameters to paper over an old syntax change (when monikers were first introduced to cdbi).
 
 =cut
 
@@ -572,6 +549,42 @@ sub extra_output {
 	return {};
 }
 
+=head3 pager( ignore_id )
+
+If a moniker parameter has been supplied, and corresponds to a valid data class, this method will return a pager object attached to that class. If there's a page parameter, that will be passed on too.
+
+Normally this method will return undef if an id parameter is also supplied, assuming that an object rather than a pager is required. Supply a true value as the first parameter and this reluctance will be overridden.
+
+=cut
+
+sub pager {
+	my ($self, $insist) = @_;
+	return if $self->id && ! $insist;
+	return unless $self->moniker;
+    $self->{pager} = $self->factory->pager($self->moniker, $self->param('page'));
+    @{ $self->{contents} } = $self->{pager}->retrieve_all();
+    return $self->{pager};
+}
+
+=head3 list( list_object )
+
+If a moniker parameter has been supplied, this will return an object of Class::DBI::Factory::List attached to the corresponding data class. 
+
+Any other parameters that match columns of the data class will also be passed through, along with any of the list-control flags (sortby, sortorder, startat and step).
+
+As with pager, if there is an id parameter then the list will only be built if you pass a true value to the method.
+
+=cut
+
+sub list {
+	my ($self, $insist) = @_;
+	return if $self->id && ! $insist;
+	return unless $self->moniker;
+    my %list_criteria = map { $_ => scalar( $self->param($_) ) } grep { $self->param($_) } $self->factory->columns($self->moniker, 'All');
+    $list_criteria{$_} = $self->param($_) for grep { $self->param($_) } qw( sortby sortorder startat step );
+    return $self->{list} = $self->factory->list( $self->moniker, %list_criteria );
+}
+
 =head3 session( )
 
 This is just a placeholder, and doesn't do or return anything. It is included in the default set, on the assumption that the first thing you do will be to supply a session-handling mechanism: all you have to do is override this session() method.
@@ -600,11 +613,13 @@ sub master_template {
 
 This small set of methods provides for the most obvious operations performed on cdbi objects: create, update and delete. Most of the actual work is delegated to factory methods.
 
-A real application will replace these with something less crappy and also include non-object related operations like logging in and out, registering and making changes to sets or classes all at once.
+A real application will also include non-object related operations like logging in and out, registering and making changes to sets or classes all at once.
 
 =head2 store_object()
 
-Uses the input set to create or update the object already held as $self->{thing}.
+Uses the input set to create or update an object.
+
+The resulting object is stored in $self->thing.
 
 =head2 delete_object()
 
@@ -652,18 +667,20 @@ sub deleted_object {
 
 $handler->factory->retrieve_all('artist');
 
-Returns the local factory object, which will create it if it doesn't exist yet. 
+Returns the local factory object, or creates one if none exists yet. You can also pass in a factory object, though I can't imagine many cirumstances where this would be required. I only use during the installation tests.
 
 =head2 factory_class()
 
-Returns the full name of the class that should be used to instantiate the factory. Defaults to Class:DBI::Factory, of course: if you subclass the factory class, you must mention the name of the subclass here.
+returns the full name of the class that should be used to instantiate the factory. Defaults to Class:DBI::Factory, of course: if you subclass the factory class, you must mention the name of the subclass here.
 
 =cut
 
 sub factory_class { "Class::DBI::Factory" }
+
 sub factory { 
-	my $self = shift;
-	return $self->{_factory} ||= $self->factory_class->instance; 
+    my $self = shift;
+    return $self->{_factory} = $_[0] if @_;
+    return $self->{_factory} ||= $self->factory_class->instance(); 
 }
 
 =head2 request()
@@ -805,7 +822,7 @@ Returns the full address of this request (ie url?qs)
 
 sub url {
 	my $self = shift;
-	return $self->request->uri;
+	return $self->request->uri;    # changed for mod_perl2 from url to uri
 }
 
 sub full_url {
@@ -815,7 +832,7 @@ sub full_url {
 
 sub qs {
 	my $self = shift;
-	my $qs = $self->request->query_string;
+	my $qs = $self->request->env->args; # updated for mod_perl2, since Apache::RequestRec has no query_string method. docs are oddly silent on this.
 	return $qs;
 }
 
@@ -940,7 +957,6 @@ sub param {
 	$self->debug(5, "CDFH->param($p);", 'handler', 'input');
 	return $self->request->param unless $p;
 	my @input = map { $self->factory->inflate_if_possible($p => $_) } $self->request->param($p);
-	return $input[0] unless $#input;
 	return wantarray ? @input : $input[0];
 }
 
@@ -965,9 +981,10 @@ sub all_param {
 }
 
 sub set_param {
-	my $self = shift;
-	$self->debug(4, 'set_param(' . join(',',@_) . ')');
-	return $self->request->param(@_);
+	my ($self, $param, $value) = @_;
+	$self->debug(5, "CDFH->set_param($param => $value);", 'handler', 'input');
+    return unless $param;
+	$self->request->args->{$param} = "$value";   # stringified because it _hates_ getting objects.
 }
 
 sub delete_param {
@@ -1007,30 +1024,49 @@ sub upload {
 	return $self->request->upload(@_);
 }
 
-=head2 cookies()
+=head2 cookiejar()
 
-  my $cookies = $handler->cookies();
+  my $jar = $handler->cookiejar();
 
-Returns the full set of cookies as a hashref.
+Returns an Apache::Cookie::Jar object providing access to all the cookies in the request header.
 
 =head2 cookie( cookie_name )
 
   my $userid = $handler->cookie('my_site_id');
+  my @interests = $handler->cookie('my_keyword');
 
-Returns the value of the specified cookie.
+Returns the value(s) of the specified cookie. In scalar you get the first matching cookie, in list you get them all.
+
+=head2 cookies()
+
+  my $cookies = $handler->cookies();
+
+Returns the full set of input cookies as a hashref. This is the old way, kept for compatibility purposes. Internally we use cookiejar now.
+
+Note that changes to this hashref will not affect the Apache::Table object from which the cookies are drawn, so any code elsewhere that gets cookies directly will only see the original input.
 
 =cut 
 
 sub cookies {
 	my $self = shift;
 	return $self->{_cookies} if $self->{_cookies};
-	return $self->{_cookies} = Apache::Cookie->fetch;
+    my @cookienames = $self->cookiejar->cookies;
+    my %cookies = map { $self->cookie($_) } @cookienames;
+    return \%cookies;
+}
+
+sub cookiejar {
+	my $self = shift;
+	return $self->{_cookiejar} if $self->{_cookiejar};
+    return $self->{_cookiejar} = Apache::Cookie::Jar->new($self->request);
 }
 
 sub cookie {
 	my ($self, $cookiename) = @_;
-	my $cookies = $self->cookies;
-	return $cookies->{$cookiename}->value if $cookies->{$cookiename};
+	return unless $cookiename;
+    my $cookie = $self->cookiejar->cookies($cookiename);
+    $self->debug(5, 'found cookie: ' . Dumper($cookie), 'handler', 'cookies');
+    return $cookie->value if $cookie;
 }
 
 =head1 HEADERS OUT
@@ -1054,21 +1090,7 @@ Returns the mime type that will be used if no other is specified. The default de
 
 sub send_header {
 	my $self = shift;
-	return if $self->{_header_sent};
 	$self->request->content_type($self->mime_type);
-	$self->request->no_cache(1) if $self->no_cache;	
-	$_->bake for @{ $self->{cookies_out} };
-	$self->request->send_http_header;
-    $self->header_sent(1);
-}
-
-sub no_cache { 0 };
-sub default_mime_type { 'text/html' }
-
-sub header_sent {
-	my $self = shift;
-    return $self->{_header_sent} = $_[0] if @_;
-    return $self->{_header_sent};
 }
 
 sub mime_type {
@@ -1098,14 +1120,18 @@ Adds one or more cookies to the set that will be returned with this page (or pic
 
 sub set_cookie {
 	my $self = shift;
-    if ($self->header_sent) {
-        $self->debug(1, 'set_cookie: headers already sent');
-        return;
+	$self->debug(3, "*** setting " . scalar(@_) . " cookies", 'handler', 'cookies');
+
+    foreach my $c (@_) {
+        next unless ref $c eq 'HASH';
+        my $dumper = Data::Dumper->new([$c],['cookiedata']);
+        $dumper->Maxdepth(2);
+        $self->debug(3, $dumper->Dump, 'handler', 'cookies');
+        my $cookie = Apache::Cookie->new($self->request, %$c);
+        $cookie->bake;
     }
-	push @{ $self->{cookies_out} }, map { Apache::Cookie->new($self->request, %{ $_ }) } @_;
 	return 1;
 }
-
 
 =head2 redirect( full_url )
 
@@ -1119,13 +1145,8 @@ Any cookies that have been defined are sent with the redirection, in accordance 
 
 sub redirect {
 	my $self = shift;
-    if ($self->header_sent) {
-        $self->debug(1, 'redirect: headers already sent');
-        return;
-    }
 	my $url = shift || $self->{redirect} || $self->factory->config('url');
-    $self->debug(3, "*** redirect: bouncing to $url");
-	$self->request->err_headers_out->add('Set-Cookie' => $_) for @{ $self->{cookies_out} };
+    $self->debug(3, "*** redirect: bouncing to $url", 'handler', 'redirect');
 	$self->request->err_headers_out->add( Location => $url );
 	return REDIRECT;
 }

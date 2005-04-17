@@ -13,6 +13,7 @@ test/cdf.conf
 lib/Class/DBI/Factory.pm
 lib/Class/DBI/Factory/Config.pm
 lib/Class/DBI/Factory/Handler.pm
+lib/Class/DBI/Factory/Handler2.pm
 lib/Class/DBI/Factory/List.pm
 lib/Class/DBI/Factory/Exception.pm
 lib/Class/DBI/Factory/Ghost.pm
@@ -22,6 +23,11 @@ cdfdemo/README
 cdfdemo/install.pl
 cdfdemo/conf/cdf.conf
 cdfdemo/conf/site.conf
+cdfdemo/conf/site_mp2.conf
+cdfdemo/data/albums.csv
+cdfdemo/data/artists.csv
+cdfdemo/data/genres.csv
+cdfdemo/data/tracks.csv
 cdfdemo/lib/My/DBI.pm
 cdfdemo/lib/My/Album.pm
 cdfdemo/lib/My/Artist.pm
@@ -31,6 +37,7 @@ cdfdemo/lib/My/Track.pm
 cdfdemo/public_html/index.shtml
 cdfdemo/public_html/stylesheets/demo.css
 cdfdemo/scripts/startup.pl
+cdfdemo/scripts/startup_mp2.pl
 cdfdemo/templates/_error.html
 cdfdemo/templates/_holder.html
 cdfdemo/templates/front.html

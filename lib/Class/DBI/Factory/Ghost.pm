@@ -128,6 +128,7 @@ Override this method in subclass to use a factory class other than CDF (a subcla
 
 sub factory_class { "Class::DBI::Factory" }
 sub factory { return shift->factory_class->instance; }
+sub debug { return shift->factory->debug(@_); } 
 
 =head2 AUTOLOAD()
 
@@ -139,7 +140,11 @@ sub AUTOLOAD {
 	my $self = shift;
 	my $method_name = $AUTOLOAD;
 	$method_name =~ s/.*://;
+	my ($package, $filename, $line) = caller;
     return if $method_name eq 'DESTROY';
+    
+    $self->debug(4, "*** CDF::Ghost->$method_name(" . join(', ', @_) . ") called at $package line $line", 'ghost');
+    
     my $class_methods = $self->class_methods;
     return $self->class->$method_name(@_) if $class_methods->{$method_name};
     return unless $self->find_column($method_name);

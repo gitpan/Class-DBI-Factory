@@ -11,14 +11,14 @@
 [% PROCESS furniture/head.html %]
 
 [% IF thing %]
-	[% page_template = 'one.html' %]
-[% ELSIF list %]
-	[% page_template = 'many.html' %]
+	[% view = 'one' %]
+[% ELSIF moniker %]
+	[% view = 'many' %]
 [% ELSE %]
-	[% page_template = 'front.html' %]
+	[% view = config.default_view %]
 [% END %]
 
-[% PROCESS $page_template %]
+[% PROCESS "${view}.html" %]
 
 [% PROCESS furniture/status.html %]
 

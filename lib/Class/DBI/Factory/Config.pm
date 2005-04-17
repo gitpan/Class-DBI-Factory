@@ -6,7 +6,7 @@ use Data::Dumper;
 
 use vars qw( $VERSION $AUTOLOAD );
 
-$VERSION = '0.86';
+$VERSION = '0.93';
 
 =head1 NAME
 
@@ -48,7 +48,7 @@ Returns a list of parameter names that should be handled as lists of values rath
 
 =head2 extra_list_parameters
 
-This is included for convenience: if you want to extend the standard list of list parameters, rather than replacing it, then override this method and return your additions as a list of parameter names.
+If you want to extend the standard list of list parameters, rather than replacing it, then override this method and return your additions as a list of parameter names.
 
 =head2 hash_parameters
 
@@ -56,9 +56,7 @@ Returns a list of parameter names that should be handled as hashes - ie the conf
 
 =head2 extra_hash_parameters
 
-This is included for convenience: if you want to extend the standard list of hash parameters, rather than replacing it, then override this method and return your additions as a list of parameter names. 
-
-(At the moment the standard list is empty, but that may not be true for future versions, so it's safer to use the extra methods.)
+If you want to extend the standard list of hash parameters, rather than replacing it, then override this method and return your additions as a list of parameter names. 
 
 =head2 default_values
 
@@ -66,7 +64,8 @@ Returns a hash of (parameter name => value), in which the value may be simple, a
 
 =head2 extra_defaults
 
-Another shortcut: returns a hash of name => default value which is appended to the usual set of defaults, if you just want to add a couple rather than specifying a whole new set.
+If you want to extend the standard list of default values, rather than replacing it, then override this method and return your additions as a hash of name => default value pairs. The default values can be scalars, or references to lists or hashes as appropriate. 
+
 
 =cut
 
@@ -91,14 +90,14 @@ sub skeleton {
 sub list_parameters {
 	my $self = shift;
 	my @param = $self->extra_list_parameters;
-	push @param, qw(include_file use_package package class template_dir template_subdir module_dir module_subdir);
+	push @param, qw(include_file class template_dir template_subdir module_dir module_subdir debug_topic);
 	return @param;
 }
 
 sub hash_parameters {
 	my $self = shift;
 	my @param = $self->extra_hash_parameters;
-	push @param, qw(package_requires package_title package_short_title package_description package_page view_package class_package);
+	push @param, qw();
 	return @param;
 }
 
@@ -118,25 +117,18 @@ sub default_values {
 		db_servername => undef,
 		db_port => undef,
 		debug_level => 0,
+		dbi_trace => 0,
 		%and_from_subclass
 	);
 }
 
-sub extra_list_parameters {
-	return ();
-}
+sub extra_list_parameters { () }
+sub extra_hash_parameters { () }
+sub extra_defaults { () }
 
-sub extra_hash_parameters {
-	return ();
-}
+=head1 CONSTRUCTION AND MAINTENANCE
 
-sub extra_defaults {
-	return ();
-}
-
-=head1 INTERFACE
-
-If you decide to replace this module with one of your own, all you have to do is provide these methods:
+In which configuration files are sought, objects are built up and everything kept up to date.
 
 =head2 new()
 
@@ -147,133 +139,57 @@ Should optionally take a file path parameter and pass it to file(): otherwise, j
 =cut
 
 sub new {
-	my ($class, $param) = @_;
-	my $appconfig = AppConfig->new( $class->skeleton );
+	my ($class, @config_files) = @_;
 	my $self = bless {
-		_ac => $appconfig,
 		_file_read => {},
 		_files => [],
-		_packages => [],
+		_config_files => [ @config_files ],
+		_timestamp => scalar time,
 	}, $class;
-	$self->file( delete($param->{file}) ) if $param->{file};
-	$self->set( %$param ) if %$param;
+	return $self->_build;
+}
+
+=head2 _build()
+
+This one does the real work of reading in all the configuration files we can find.
+
+=cut
+
+sub _build {
+	my $self = shift;
+	$self->file($self->config_files);
+	$self->extra_prep;
+	$self->file( $_ ) for @{ $self->get('include_file') };
 	return $self;
 }
 
-=head2 load_packages()
+=head2 config_files()
 
-Attempts to load each of the packages specified in 'use_package' config parameters, if any. This requires that a 'package_dir' path has also been supplied, and optionally a 'package_file_suffix', though that will default to 'info' if not found. Note no dot needed, as with all suffix parameters here.
+Accessor for the list of config files that will be read. This list can't be set after construction, but you can always call file() to read more files in.
 
-=head2 packages()
+This method will always return the list of files that was supposed to be read on construction. Call files() if you would like the list of files (successfully) read during the lifetime of the config object.
 
-Returns a list of the packages successfully loaded.
+=head2 extra_prep()
 
-=head2 package_loaded()
+Placeholder for any configuration-loading steps you want to include.
 
-Returns true if the named package was successfully loaded at startup.
-
-=head2 classes()
-
-A shorthand for $config->get('class'): returns a list.
+This method is called after config files have been read, so settings here will override defaults.
 
 =cut
 
-sub load_packages {
-	my $self = shift;
-    return unless $self->package_dir;
-    my @packages =  @{ $self->get('use_package') } if $self->get('use_package');
-    $self->_load_package($_) for @packages;
+sub config_files { 
+    my $self = shift;
+    return unless $self->{_config_files};
+    return @{ $self->{_config_files} };
 }
 
-sub packages {
-	my $self = shift;
-	return @{ $self->{_packages} };
-}
-
-sub package_loaded {
-    my ($self, $package) = @_;
-    my %packages = map { $_ => 1 } $self->packages;
-    return $packages{$package};
-}
-
-=head2 _load_package()
-
-_load_package is mostly obvious: it works out the package file location and passes it to the AppConfig object's file() method for reading. 
-
-There is also some shuffling going on here to record the package in which certain key variables are declared. To do that we create a separate, temporary AppConfig object and from that pull a list of all the class and *_view parameters. This information, reversed, is stored in the class_package and view_package hash parameters of the main appconfig object, and used later to respond to queries from templates.
-
-in other words, if the package 'foo' defines a view:
-
-  permitted_view = bar
-
-Then we will also store the fact that it did so:
-
-  view_package bar = foo
-
-The order of events is such that the package file can override this assumption, by defining its own view_package pair:
-
-  permitted_view = bar
-  view_package bar = default
-  
-  class = My::Bar
-  class_package = default
-  
-At present the class_package information is only used to make interface decisions, so feel free to tinker with it.
-
-=cut
-
-sub _load_package {
-	my ($self, $package) = @_;
-	my $suffix = $self->package_file_suffix || 'info';
-	my $packagefile = $self->package_dir . "/${_}.${suffix}";
-	return unless -e $packagefile && -f $packagefile;
-
-	my $tempac = AppConfig->new( $self->skeleton );
-	$tempac->file($packagefile);
-	my $classes = $tempac->get('class');
-	my $views = $tempac->get('permitted_view');
-	my $aviews = $tempac->get('admin_view');
-	my $pviews = $tempac->get('public_view');
-	undef $tempac;
-	
-	$self->set(view_package => "$_ = $package") for (@$views, @$aviews, @$pviews);
-	$self->set(class_package => "$_ = $package") for (@$classes);
-	$self->file($packagefile);
-
-    push @{ $self->{_packages} }, $package;
-}
-
-=head2 class_package()
-
-  $config->class_package('My::Data::Class');
-
-returns the name of the package responsible for bringing this class into the application.
-
-=cut
-
-sub class_package {
-	my ($self, $class) = @_;
-    return $self->_ac->class_package->{$class};
-}
-
-=head2 view_package()
-
-  $config->view_package('discussions');
-
-returns the name of the package responsible for permitting this view.
-
-=cut
-
-sub view_package {
-	my ($self, $view) = @_;
-    return $self->_ac->view_package->{$view};
-}
+sub extra_prep { }
 
 =head2 file()
 
   $config->file('/path/to/file', '/path/to/otherfile');
   
-Reads configuration files from the supplied addresses, and stores the addresses in case of a later refresh() or rebuild().
+Reads configuration files from the supplied addresses, and stores their addresses and modification dates in case of a later refresh() or rebuild().
 
 =cut
 
@@ -281,10 +197,28 @@ sub file {
 	my ($self, @files) = @_;
 	my $time = scalar time;
 	for (@files) {
+        next unless _readable($_);
+        my $mdate = _mdate($_);
 		push @{ $self->{_files} } , $_;
-		$self->{_file_read}->{$_} = scalar time;
-		$self->_ac->file($_) || next;
+		$self->{_file_read}->{$_} = $mdate;
+		$self->ac->file($_) || next;
 	}
+}
+
+sub _readable {
+    my $self = shift;
+    my $f = ref ($self) ? shift : $self;
+    $f =~ s/\/+/\//g;
+    return $f if -e $f && -f _ && -r _;
+    return;
+}
+
+sub _mdate {
+    my $self = shift;
+    my $f = ref ($self) ? shift : $self;
+    $f =~ s/\/+/\//g;
+	my @stat = stat($f);
+    return $stat[9];
 }
 
 =head2 refresh()
@@ -294,28 +228,31 @@ sub file {
 
 Checks the modification date for each of the configuration files that have been read: if any have changed since we read it, the whole configuration object is dropped and rebuilt. 
 
-By default it will revisit the whole set of read configuration files, but if you supply a list of files, refresh() will confine itself to looking at the intersection of your list and the list of files already read. Use $config->file to read a new file, in other words: refresh only works on files that have already been read at least once.
+By default this will revisit the whole set of read configuration files, but if you supply a list of files, refresh() will confine itself to looking at the intersection of your list and the list of files already read. Either way, configuration files are always read back in in the same order as we originally encountered them.
 
-Note that if a configuration file is missing at startup it will not be looked for later: this only refreshes the files already read.
+Note that if a configuration file is missing at startup it will not be looked for later: this only refreshes the files that were successfully read.
 
 =head2 rebuild()
 
 This will drop all configuration information and start again by re-reading all the configuration files. Any other changes your application has made, eg by setting values directly, will be lost.
+
+=head2 files()
+
+Returns a list in date order of all the configuration files successfully read during the lifetime of this object.
 
 =cut
 
 sub refresh {
 	my $self = shift;
 	my @files = @_ || $self->files;
-	my $changed = 0;
+    return unless @files;
 	for (@files) {
         next unless exists $self->{_file_read}->{$_};
-		unless (-e $_ && -f $_) { $changed++; next; }
-		my @stat = stat($_);
-		$changed++ if $stat[9] > $self->{_file_read}->{$_};
+		next unless _readable($_);
+		next unless _mdate($_) > $self->{_file_read}->{$_};
+		return $self->rebuild;
 	}
-	return unless $changed;
-    return $self->rebuild;
+    return;
 }
 
 sub rebuild {
@@ -323,23 +260,59 @@ sub rebuild {
 	my @files = $self->files;
     $self->{_files} = [];
 	$self->{_file_read} = {};
-	$self->_ac( AppConfig->new($self->skeleton) );
+	$self->_new_ac;
 	$self->file( @files );
+	$self->{_timestamp} = scalar time,
 }
 
 sub files {
     return @{ shift->{_files} };
 }
 
-=head2 get()
+=head2 timestamp()
 
-  $config->get('smtp_server');
+A possibly-useful read-only method that returns the epoch time at which this object read in its configuration files (ie when it was built, or last rebuilt).
+
+=cut
+
+sub timestamp {
+    return shift->{_timestamp};
+}
+
+=head1 ACCESS TO SETTINGS
+
+CDF::Config uses the same conventions as AppConfig. If there's no clash with a method name, you can retrieve settings like this:
+
+  $address = $config->admin_email;
+  @views = $config->permitted_view;
+  [% FOREACH user IN config.sin_bin %]
+  
+or like this, which is the syntax you'll have to use if either CDFC or AppConfig provides a method with the same name as your parameter:
+
+  $rebuild = $config->get('rebuild');
+  
+And you can set values the same two ways:
+
+  $config->your_manager_for_today( $person->id );
+  $config->set( your_manager_for_today => $person->id );
+
+There are two big fat red flags to consider when setting values this way:
+
+=over
+
+=item This configuration object is shared by every request handler, data class and template that makes use of this factory. In practice that means that changes affect every visitor to the site, not just the present one (mumble within this apache process mumble).
+
+=item If a configuration file is updated on disk, the configuration object will be torn down and rebuilt. Any changes you have made by calling set() will be lost.
+
+=back
+
+You can call the tethered AppConfig object directly through $config->ac, if you must.
+
+=head2 get()
   
 Gets the named value.
 
 =head2 set()
-
-  $config->set(smtp_server => 'localhost');
   
 Sets the named value.
 
@@ -347,28 +320,38 @@ Sets the named value.
 
 returns a simple list of all the variable names held.
 
+=head2 classes()
+
+returns the list of classes we're supposed to load. This is just for readability: all it does is call get('class'), but it allows us to write:
+
+  $factory->config->classes
+  
+instead of the rather misleading:
+
+  $factory->config->class
+
+  
 =cut
 
 sub get {
-	return shift->_ac->get(@_);
+	return shift->ac->get(@_);
 }
 
 sub set {
-	return shift->_ac->set(@_);
+	return shift->ac->set(@_);
 }
 
 sub all {
-	return shift->_ac->varlist;
+	return shift->ac->varlist;
 }
 
 sub classes {
 	return shift->get('class');
 }
 
-
 =head2 template_path()
 
-Returns a reference to an array of directories in which to look for TT templates.
+It's normal for a subclass to add lots of custom lookup methods that combine configuration settings in useful ways. This is the only one we need at this level. It returns a reference to an array of directories in which to look for TT templates.
 
 These can be defined in two ways: directly, with a 'template_dir' parameter, or in two stages, with a 'template_root' and one or more 'template_subdir' parameters.
 
@@ -393,16 +376,27 @@ sub AUTOLOAD {
 	my $method_name = $AUTOLOAD;
 	$method_name =~ s/.*://;
     return if $method_name eq 'DESTROY';
-    return unless $self->_ac;
+    return unless $self->ac;
     my %hashed = map { $_=> 1} $self->hash_parameters;
-    return $self->_ac->$method_name()->{ $key } if $key && $hashed{$method_name}; 
-	return $self->_ac->$method_name();
+    return $self->ac->$method_name()->{ $key } if $key && $hashed{$method_name}; 
+	return $self->ac->$method_name();
 }
 
-sub _ac {
+sub ac {
     my $self = shift;
-    return $self->{_ac} = $_[0] if @_;
-    return $self->{_ac};
+    return $self->{ac} = $_[0] if @_;
+    return $self->{ac} || $self->_new_ac;
+}
+
+=head2 _new_ac()
+
+Forces the creation of a new, empty AppConfig object. This should only ever be called during a build or rebuild.
+
+=cut
+
+sub _new_ac {
+    my $self = shift;
+    return $self->{ac} = AppConfig->new( $self->skeleton );
 }
 
 =head1 SEE ALSO

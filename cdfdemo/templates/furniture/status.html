@@ -1,27 +1,24 @@
 <div id="status">
-<p>factory is [% factory %]</p>
+<pre>factory id is '[% factory.id %]' and timestamp [% factory.timestamp %]</pre>
 
-<p>
-site_id is <b>[% factory.site_id %]</b><br>
-site_config_file is <b>[% factory.site_config_file %]</b><br>
-global_config_file is <b>[% factory.global_config_file %]</b><br>
-config_class is <b>[% factory.config_class %]</b><br>
-list_class is <b>[% factory.list_class %]</b><br>
-pager_class is <b>[% factory.pager_class %]</b><br>
-dbh is <b>[% factory.dbh %]</b><br>
-tt is <b>[% factory.tt %]</b><br>
-</p>
+<pre>
+config_class is <b>[% factory.config_class %]</b>
+config files read: <b>[% factory.config.files.join(' ') %]</b>
+config timestamp: <b>[% factory.config.timestamp %]</b>
+data classes: <b>[% factory.config.classes.join(' ') %]</b>
+list_class is <b>[% factory.list_class %]</b>
+dbh is <b>[% factory.dbh %]</b>
+tt is <b>[% factory.tt %]</b>
+template path: <b>[% factory.config.template_path.join(' ') %]</b>
+master template: <b>[% factory.config.master_template %]</b>
+</pre>
 
-<p>
-id <b>[% id %]</b><br>
-moniker <b>[% moniker %]</b><br>
-thing <b>[% thing %]</b><br>
-pager <b>[% pager %]</b><br>
-</p>
+<pre>
+id: <b>[% id %]</b>
+moniker: <b>[% moniker %]</b>
+thing: [% IF thing %]<b>[% thing.moniker %] [[% thing.id %]][% IF thing.title %]: [% thing.title %][% END %]</b>[% IF thing.is_ghost %] (ghost)[% END %][% END %]
+list: <b>[% list %]</b>
+view: <b>[% view %]</b>
+</pre>
 
-<p>factory->classes: [% factory.classes.join(', ') %]
-</p>
-
-<p>factory->class_names: [% factory.class_names.join(', ') %]
-</p>
 </div>

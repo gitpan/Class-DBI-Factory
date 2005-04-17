@@ -4,7 +4,7 @@ use strict;
 use Carp qw();
 use vars qw( $AUTOLOAD $VERSION );
 
-$VERSION = "0.9";
+$VERSION = "0.93";
 
 =head1 NAME
 
@@ -72,7 +72,7 @@ To build a list from scratch, you just need to supply a hashref of criteria that
 		 sortby => 'title',
 	 });
 
-A quicxk call to the factory gives us a fully qualified class name for the moniker. The startat, step and sortby criteria are pulled out and stored as display constraints. The remaining criteria are held as the parameters which will be used passed to the $content_class->search() method when the time comes to display the list.
+A quick call to the factory gives us a fully qualified class name for the moniker. The startat, step and sortby criteria are pulled out and stored as display constraints. The remaining criteria are held as the parameters which will be used passed to the $content_class->search() method when the time comes to display the list.
 
 So if your application is using Class::DBI::Factory and the Template Toolkit, creating a list on page can be as simple as:
 
@@ -94,7 +94,7 @@ my $list = Class::DBI::Factory::List->from( $iterator, $artist, { step => 20 });
 sub new {
 	my ( $class, $input ) = @_;
 	my $moniker = delete $input->{moniker};
-    throw Exception::NOT_FOUND(-text => 'No such content class.') unless $class->factory->has_class( $moniker );
+    throw Exception::NOT_FOUND(-text => "No such content class ('$moniker').") unless $class->factory->has_class( $moniker );
     
     my $content_class = $class->factory->class_name($moniker);
     my $prefix = delete $input->{prefix};
@@ -106,6 +106,7 @@ sub new {
 		_constraints => \%constraints,
 		_class => $content_class,
 	    _prefix => $prefix,
+	    _sortable => 1,
 	}, $class;
     $self->debug(3, "new list. content_class is $content_class and prefix is '$prefix");
     return $self;
@@ -124,6 +125,7 @@ sub from {
 		_constraints => \%constraints,
 		_class => $content_class,
 	    _prefix => $prefix,
+	    _sortable => 0,
 	}, $class;
     $self->debug(2, "*** list from iterator. content class is $content_class.");
     return $self;
@@ -389,6 +391,17 @@ sub show_pagination {
 	my $self = shift;
 	return 1 unless $self->total_records < $self->constraints('step') && $self->constraints('startat') < 1;
 	return 0;
+}
+
+=head2 sortable()
+
+Returns true if this list can be resorted simply. The answer is yes if the underlying iterator was built here - we can build it again with a different sort clause - but we assume that it is no if the iterator was passed in to us already constructed. 
+
+=cut
+
+sub sortable {
+	my $self = shift;
+	return $self->{_sortable};
 }
 
 =head2 previous_step()

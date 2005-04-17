@@ -6,7 +6,7 @@ use Email::Send;
 use Data::Dumper;
 use vars qw( $AUTOLOAD $VERSION );
 
-$VERSION = "0.1";
+$VERSION = "0.2";
 
 =head1 NAME
 
@@ -77,9 +77,9 @@ sub tt { shift->factory->tt(@_); }
 
 Mutator for the name of the sender used by Email::Send. This defaults to the value specified in the 'default_mailer' configuration parameter, but you can supply any other name, either from the standard Email::Send set or of your own construction.
 
-=head2 smtp()
+=head2 mta_parameters()
 
-Mutator for the address of the smtp relay that will be used if Email::Send is using smtp (ie if mta() returns 'SMTP'). Irrelevant otherwise. Defaults to the value specified in the 'smtp_relay' configuration parameter.
+Mutator for the parameters that will be passed to Email::Send::Whatever. Usually this is the address of the smtp relay that will be used if Email::Send is using smtp (ie if mta() returns 'SMTP'): itdefaults to the value specified in the 'smtp_relay' configuration parameter.
 
 (You can also use this to set any other secondary parameter that an Email::Send transport is expecting, such as the file or socket for an IO send. It's a pretty ugly way round, but I only use it for the tests so it doesn't matter yet.)
 
@@ -91,7 +91,7 @@ sub mta {
 	return $self->{mta} ||= $self->config->get('default_mailer') || 'Sendmail';
 }
 
-sub smtp {
+sub mta_parameters {
 	my $self = shift;
 	return $self->{smtp} = $_[0] if $_[0];
 	return $self->{smtp} ||= $self->config->get('smtp_relay');
@@ -114,12 +114,14 @@ sub send_message {
 	$self = $self->new unless ref $self;
 	return unless $instructions->{subject} && $instructions->{to};
     $instructions->{from} ||= $self->config->get('mail_from');
+	$instructions->{'content-type'} ||= ($instructions->{as_html}) ? 'text/html; charset="iso-8859-1"' : 'text/plain';
 
 	my $message;
-	if ($instructions->{template}) {
+	my $header = join("\n", map("$_: " . $instructions->{lc($_)}, qw(To From Subject Content-Type)));
+	$header .= "\n\n";
 	
+	if ($instructions->{template}) {
         $self->tt->process( $instructions->{template}, {
-            content_type => $instructions->{as_html} ? 'text/html; charset="iso-8859-1"' : 'text/plain',
             factory => $self->factory,
             config => $self->config,
             date => $self->factory->now,
@@ -127,19 +129,14 @@ sub send_message {
         }, \$message );
 
 	} else {
-	
-        $message = <<"EOM";
-To: $$instructions{to}
-From: $$instructions{from}
-Subject: $$instructions{subject}
+        $message = $instructions->{message};
 
-$$instructions{message}
-EOM
 	}
-	$self->debug(4, "sending message: \n$message");
+	
+	$self->debug(4, "sending message '$$instructions{subject}' to $$instructions{to}", 'email');
 	my $mta = $self->mta;
-	my $via =  $self->smtp if $mta eq 'SMTP' || $mta eq 'IO';
-	send $mta => $message, $via;
+	my $via =  $self->mta_parameters if $mta eq 'SMTP' || $mta eq 'IO';
+	send $mta => $header . $message, $via;
 }
 
 =head2 email_admin( parameter_hashref )

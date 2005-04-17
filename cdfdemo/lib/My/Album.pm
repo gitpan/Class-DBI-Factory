@@ -14,6 +14,6 @@ My::Album->has_many( tracks => 'My::Track', {order_by => 'position'} );
 sub moniker { 'album' }
 sub class_title { 'Album' }
 sub class_plural { 'Albums' }
-sub class_description { 'The album class.' }
+sub class_description { 'An album (from Latin albus "white", "blank", relating to a blank book in which something can be inserted) is a packaged collection of related things. The most common types of albums are record albums and photo albums.' }
 
 1;

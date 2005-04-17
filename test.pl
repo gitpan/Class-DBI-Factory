@@ -6,8 +6,8 @@ use Test::More;
 use Test::Exception;
 
 BEGIN {
-    eval "use DBD::SQLite2";
-    plan $@ ? (skip_all => 'Tests require DBD::SQLite2') : (tests => 52);
+    eval "use DBD::SQLite";
+    plan $@ ? (skip_all => 'Tests require DBD::SQLite') : (tests => 54);
     use_ok('Class::DBI::Factory');
     use_ok('Class::DBI::Factory::Config');
     use_ok('Class::DBI::Factory::Handler');
@@ -19,6 +19,7 @@ BEGIN {
 
 my $here = cwd;
 my $now = scalar time;
+my $configfile = "$here/test/cdf.conf";
 
 my $dumb_factory = Class::DBI::Factory->new;
 isa_ok( $dumb_factory, 'Class::DBI::Factory', 'empty factory'); 
@@ -29,8 +30,8 @@ is( $$classes[0], 'thing', 'use_classes');
 
 undef $dumb_factory;
 
-$ENV{_SITE_ID} = '_test';
-$ENV{_CDF_CONFIG} = "$here/test/cdf.conf";
+$ENV{_SITE_TITLE} = '_test';
+$ENV{_CDF_CONFIG} = $configfile;
 
 my $factory = Class::DBI::Factory->instance;
 
@@ -39,17 +40,17 @@ ok( $factory, 'full factory constructed' );
 print "\nCONFIG\n\n";
 
 isa_ok($factory->config, 'Class::DBI::Factory::Config', 'full factory config');
-isa_ok($factory->config->{_ac}, 'AppConfig', 'config->{_ac}');
+isa_ok($factory->config->ac, 'AppConfig', 'config->ac');
 is($factory->config->get('refresh_interval'), '3600', 'config values');
 is($factory->config->get('template_root'), '<undef>', 'config non-values');
 
 print "\nFACTORY\n\n";
 
-my $dsn = "dbi:SQLite2:dbname=cdftest.db";
+my $dsn = "dbi:SQLite:dbname=cdftest.db";
 my $config = set_up_database($dsn);
 $factory->set_db($config);
 
-ok( $factory->dbh && $factory->dbh->ping, 'connected to ' . $config->{db_type});    #12
+ok( $factory->dbh && $factory->dbh->ping, 'connected to ' . $config->{db_type});
 
 my $thing = $factory->create(thing => {
 	title => 'Wellington boot remover',
@@ -186,8 +187,8 @@ $factory->mailer->mta('IO');
 is ($mailer->mta, 'IO', 'mailer transport set');
 
 my $mailfile = 'mailtest.txt';
-$factory->mailer->smtp($mailfile);
-is ($mailer->smtp, $mailfile, 'mailer smtp set');
+$mailer->mta_parameters($mailfile);
+is ($mailer->mta_parameters, $mailfile, 'mailer parameter set');
 
 SKIP: {
     eval "require File::Slurp; require Email::Send::IO;";
@@ -200,16 +201,15 @@ SKIP: {
             message => 'hello dere',
         });
     
-        my $target = <<'EOM';
-To: testy
+        my $target = qq|To: testy
 From: testy
 Subject: testy
+Content-Type: text/plain
 
-hello dere
-EOM
+hello dere|;
 
         my $message = File::Slurp::read_file( $mailfile ) if -e $mailfile;
-        is($message, $target, "Email message delivered ok (to local filesystem)");
+        is($message, $target, "Email message 'delivered' to local filesystem");
         unlink $mailfile;
     }
 }
@@ -233,6 +233,38 @@ otherwise {
     print "bad! Exception not caught.";
 };
 
+print "\nCONFIGURATION SELF-UPDATE\n\n";
+
+warn "...Time passes...\n\n";
+sleep(1);
+
+my ($testparam, $testvalue);
+my @c = ('A'..'Z', 'a'..'z', 0..9);
+$testparam .= $c[ int(rand $#c) ] for (1..8);
+$testvalue .= $c[ int(rand $#c) ] for (1..8);
+
+open CFG, ">>$configfile"; 
+print CFG "$testparam = $testvalue\n";
+close CFG;
+
+my $ts = $factory->config->timestamp;
+$factory->config->refresh;
+
+isnt( $factory->config->timestamp, $ts, 'config detects file update' );
+is ( $factory->config->get($testparam), $testvalue, "config contains new parameter");
+
+
+# that's all, folks.
+
+
+
+
+
+
+
+
+
+
 sub test_404 {
     throw Exception::NOT_FOUND(
         -text => "Just testing", 
@@ -242,17 +274,17 @@ sub test_404 {
 
 END {
     undef $factory;
-    print "\nTest database deleted.\n\n" if $config->{db_type} eq 'SQLite2' && unlink "${here}/cdftest.db";
+    print "\nTests complete: database deleted.\n\n" if $config->{db_type} eq 'SQLite' && unlink "${here}/cdftest.db";
 }
 
 sub set_up_database {
     my $dsn = shift;
 	my $dbh;
 	eval { $dbh = DBI->connect($dsn,"",""); };
-    die "connecting to (and creating) SQLite2 database './cdftest.db' failed: $!" if $@;
+    die "connecting to (and creating) SQLite database './cdftest.db' failed: $!" if $@;
     $dbh->do('create table things (id integer primary key, title varchar(255), description text, date int);');
     return {
-        db_type => 'SQLite2',
+        db_type => 'SQLite',
         db_name => 'cdftest.db',
         db_username => '',
         db_password => '',

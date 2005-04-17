@@ -1,3 +1,4 @@
+<div style="border-top: 1px solid #666; margin-top: 30px;">
 [% moniker = moniker || thing.moniker %]
 [% typetitle = factory.title(moniker) %]
 
@@ -30,4 +31,7 @@
 
 <input type="submit" value=" store [% typetitle %]">
 
+<p>To edit or create objects you must have the appropriate permission on both <tt>[% config.db_name %]</tt> and the directory that contains it.</p>
+
 </form>
+</div>

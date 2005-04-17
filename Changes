@@ -1,5 +1,28 @@
 Revision history for Perl extension Class::DBI::Factory.
 
+0.994 17 April 2005
+    - handler back to mod_perl 1 (with great relief) after widespread
+      grumbling about premature shift to mod_perl2.
+    - CDF::Handler2 available for experiments with mod_perl2
+    - new() now a synonym for instance() since a call to instance() is
+      now dropped into each data class. this caused a bug in which data 
+      classes would get the wrong factory back if the right factory had
+      been created with a call to new().
+    - fancy new Makefile.PL that installs the demo for you if you like, 
+      and adjusts the dependencies appropriately.
+    - documentation tidied up at top, rewritten further down.
+    - factory startup methods gathered behind init() to 
+      simplify future changes.
+	- load_class tests whether the class is already loaded, thanks to 
+	  clever line pinched from Merlyn. Factory now ok if many data classes 
+	  are declared in one file.
+	- interface to CDF::Mailer tidied up a bit.
+	- Back to SQLite3. added DBD::SQLite 1.08 dependency to Makefile 
+	  because 1.07 generates all those warnings. This might be a 
+	  nuisance but it means that the demo runs without extra cpanning.
+	- moved from CVS to SVN
+	- once mod_perl2 settles down, this is likely to be released as v1.
+    
 0.99  18 February 2005
     - handler now mod_perl2 only.
     - db_Main hooks in data classes now inserted for you.
@@ -21,7 +44,7 @@ Revision history for Perl extension Class::DBI::Factory.
     - Package-handling greatly improved.
     - Documentation updated to explain about problems with live_object 
       index and database shuffling
-    - boosterism moved to separate Howto.pm to simplify documentation.
+    - boosterism got rid of to simplify documentation.
     - ghosts made more useful, flexible
 
 0.85
